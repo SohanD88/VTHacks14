@@ -1,10 +1,32 @@
 """
-tap_stream.py  v5  -  runs on the BACKPACK laptop.
+tap_stream.py  v7  -  runs on the BACKPACK laptop.
 
-Tap the touch sensor to start streaming. Tap again to stop.
+Tap the button (or touch sensor) to start streaming. Tap again to stop.
 
-  Touch sensor 1 (socket D2, sends TAP1) = start / stop the mission
-  Touch sensor 2 (socket D3, sends TAP2) = drop a "hazard" marker
+  Button 1 (socket D2, sends TAP1) = start / stop the mission
+  Button 2 (socket D3, sends TAP2) = drop a "hazard" marker
+
+NEW IN v7: ROTATE BUTTONS + BUTTONS THAT REST HIGH
+  Picture sideways? Press Rotate left / Rotate right on the test page
+  (or GET /rotate?turn=cw). The live view, the saved video and the keyframes
+  all follow, with no restart. --rotate only sets what the script STARTS with.
+    The glasses camera already sends an upright picture (480x640), so it needs
+    NO --rotate. "--rotate ccw" was for the Logitech webcam mounted on its side;
+    on the glasses it lays the picture on its side.
+  Needs tap_buttons.ino v3 on the Arduino. v2 only saw parts that rest LOW and go
+  HIGH when touched. A push button rests HIGH and goes LOW, so the test page
+  showed D2=1 forever and the tap never came. v3 learns the resting level of
+  each pin (again every time this script connects, so keep your fingers off the
+  buttons while it starts). The D2 / D3 boxes on the test page now mean
+  1 = pressed, whichever way round the button is wired.
+
+NEW IN v6: VOICE COMMS  (needs comms.py in the same folder)
+  The rig now talks through whatever speaker the laptop is using (Google Home
+  Mini over Bluetooth for testing, the glasses later). It announces mission
+  start/stop and markers by itself, and ANY teammate's code can make it speak:
+      GET http://BACKPACK_IP:8080/say?text=Teammate two found a person on floor two
+  Set the ElevenLabs key first (see the top of comms.py). Without a key it uses
+  the built-in Windows voice. Run with --no-voice to turn it off.
 
 WHY v5  (make it look like the Windows Camera app)
   The Windows Camera app looks perfect because it runs the webcam in its native
@@ -49,7 +71,8 @@ Install once:
     python -m pip install opencv-python flask pyserial
 
 Run:
-    python tap_stream.py --camera 1 --rotate ccw
+    python tap_stream.py --camera 1                  glasses camera (picture is already upright)
+    python tap_stream.py --camera 1 --rotate ccw     webcam mounted on its side
 
 -------------------------------------------------------------------------
 FOR THE UI TEAM  (all endpoints allow cross-origin requests)
@@ -61,14 +84,19 @@ FOR THE UI TEAM  (all endpoints allow cross-origin requests)
   Single newest frame as a JPEG:   GET /frame.jpg
 
   GET /status   -> {"active", "mission", "elapsed", "frames", "keyframes",
-                    "arduino", "sketch", "pins", "boot", "version",
+                    "arduino", "sketch", "pins", "taps", "rotate", "boot", "version",
                     "cam_fps", "enc_fps", "sent_fps", "rec_fps", "rec_dropped", ...}
+                   "pins" = [D2, D3], 1 = pressed right now
   GET /events   -> [{"t": 8.2, "keyframe": 16, "label": "hazard", ...}, ...]
   GET /toggle   -> start or stop (same as tapping sensor 1)
   GET /start    /stop
   GET /mark?label=hazard        -> drop a marker from the UI
+  GET /say?text=...             -> speak a message on the rig's speaker (ElevenLabs voice)
   GET /tune?preset=light|balanced|sharp     (or max=720&fps=30&q=70)
   GET /camera?exposure=-6   |  exposure=auto  |  gain=120  |  settings=1
+  GET /rotate?turn=cw|ccw       -> turn the picture 90 degrees from where it is now
+      /rotate?dir=none|cw|ccw|180   sets it outright. The stream changes shape
+      (portrait <-> landscape), so do not hard-code the img size.
 -------------------------------------------------------------------------
 """
 
@@ -94,7 +122,23 @@ try:
 except ImportError:
     serial = None
 
-VERSION = "v5"
+try:
+    import comms                          # voice comms (comms.py next to this file)
+except ImportError:
+    comms = None
+voice_on = True
+
+VERSION = "v7"
+
+
+def announce(text):
+    """Speak on the rig's speaker. Never blocks, never raises."""
+    if comms is not None and voice_on:
+        try:
+            comms.say(text)
+        except Exception as e:
+            print(f"[comms] {e}")
+
 
 ROTATIONS = {
     "none": None,
@@ -102,6 +146,7 @@ ROTATIONS = {
     "ccw": cv2.ROTATE_90_COUNTERCLOCKWISE,
     "180": cv2.ROTATE_180,
 }
+TURN_ORDER = ["none", "cw", "180", "ccw"]   # each step = another 90 degrees clockwise
 
 PRESETS = {
     "light":    {"max": 480,  "fps": 15.0, "q": 60},   # weak hotspot
@@ -121,7 +166,12 @@ mission_no = 0
 
 arduino_ok = False      # serial port is open
 last_hb = 0.0           # last heartbeat from the sketch
-pins = [None, None]     # live state of D2, D3 as reported by the sketch
+sketch_ver = None       # 3 = tap_buttons v3 (knows which level is "pressed"), 2 = old sketch
+pins = [None, None]     # D2, D3 from the sketch. v3: 1 = pressed. Old v2 sketch: the raw pin level
+pins_raw = [None, None]     # v3 only: raw level of each pin
+pins_rest = [None, None]    # v3 only: the level each pin rests at when nobody presses
+press_seen = [0.0, 0.0]     # last time each button was seen pressed (keeps a quick tap visible on the page)
+tap_counts = [0, 0]         # TAP1 / TAP2 lines received since this script started
 last_tap1 = 0.0
 tap_lockout = 1.0
 
@@ -136,7 +186,8 @@ overlay_text, overlay_until = "", 0.0
 tune = dict(PRESETS["sharp"])
 stats = {"cam_fps": 0.0, "enc_fps": 0.0, "sent_fps": 0.0, "rec_fps": 0.0,
          "rec_dropped": 0, "enc_ms": 0.0, "rec_ms": 0.0, "clients": 0, "cam_mode": ""}
-cam_state = {"live": False, "exposure": "auto", "gain": None, "focus": "auto"}
+cam_state = {"live": False, "exposure": "auto", "gain": None, "focus": "auto",
+             "rotate": "none"}       # rotate can change while running (/rotate)
 cam_requests = []       # camera control changes, applied by the capture thread
 rec_q = queue.Queue()
 rec_limit = 30           # max frames waiting for the recorder (resized to ~200 MB once we know the frame size)
@@ -194,6 +245,7 @@ def add_event(label, source):
         with open(mission_dir / "events.csv", "a", newline="") as f:
             csv.writer(f).writerow(list(ev.values()))
     print(f"[event] {ev['clock']}  {label}  (t={ev['t']}s, keyframe {ev['keyframe']})")
+    announce(f"{label.replace('_', ' ')} marked")
     return True
 
 
@@ -355,7 +407,6 @@ def capture_loop(args):
         print(f"ERROR: could not open camera {args.camera}. Try --camera 0 or --camera 2.")
         os._exit(1)
 
-    rot = ROTATIONS[args.rotate]
     file_fps = cap.get(cv2.CAP_PROP_FPS) if is_file else 0
     file_gap = 1.0 / (file_fps if file_fps and file_fps > 1 else 30.0)
     next_file_t = time.time()
@@ -379,6 +430,11 @@ def capture_loop(args):
                     print("[camera] no frames coming in. Is the webcam unplugged or used by another app?")
                 time.sleep(0.05)
             continue
+        if frame_count == 0 and frame.shape[0] > frame.shape[1] and cam_state["rotate"] in ("cw", "ccw"):
+            print(f"[camera] this camera already sends a portrait picture ({frame.shape[1]}x{frame.shape[0]}), so "
+                  f"--rotate {cam_state['rotate']} lays it on its side. If the view is sideways, run without "
+                  f"--rotate or press a Rotate button on the test page.")
+        rot = ROTATIONS[cam_state["rotate"]]      # looked up every frame: /rotate changes it live
         if rot is not None:
             frame = cv2.rotate(frame, rot)
         now = time.time()
@@ -490,8 +546,8 @@ def recorder_loop(args):
     """Thread 3: save full-quality video + sharp keyframes. Never blocks the live view."""
     global active, mission_no, mission_dir, mission_start, frame_idx, keyframe_idx, events
 
-    st = {"writer": None, "kf_log": None, "kf_writer": None, "best": None, "next_kf": 0.0,
-          "n": 0, "t0": time.time()}
+    st = {"writer": None, "size": None, "part": 1, "kf_log": None, "kf_writer": None, "best": None,
+          "next_kf": 0.0, "n": 0, "t0": time.time()}
 
     def begin():
         global active, mission_no, mission_dir, mission_start, frame_idx, keyframe_idx, events
@@ -512,8 +568,9 @@ def recorder_loop(args):
         st["kf_log"] = open(mission_dir / "keyframes.csv", "w", newline="")
         st["kf_writer"] = csv.writer(st["kf_log"])
         st["kf_writer"].writerow(["keyframe", "file", "t_seconds", "sharpness"])
-        st["best"], st["next_kf"] = None, args.keyframe_every
+        st["best"], st["next_kf"], st["part"] = None, args.keyframe_every, 1
         print(f"[mission] started -> {mission_dir}")
+        announce("Recording started")
 
     def save_keyframe():
         global keyframe_idx
@@ -530,12 +587,19 @@ def recorder_loop(args):
         global frame_idx
         tp = time.perf_counter()
         h, w = frame.shape[:2]
+        if st["writer"] is not None and st["size"] != (w, h):
+            st["writer"].release()            # picture was rotated mid-mission. One mp4 cannot change
+            st["writer"] = None               # size, so the rest goes into video_part2.mp4
+            st["part"] += 1
+            print(f"[mission] picture is now {w}x{h}, video continues in video_part{st['part']}.mp4")
         if st["writer"] is None:              # write at the rate the camera really delivers
             fps = stats["cam_fps"] if stats["cam_fps"] >= 5 else args.cam_fps
             if fps > 45:
                 fps /= 2                      # 60 fps camera: we record every 2nd frame
-            st["writer"] = cv2.VideoWriter(str(mission_dir / "video.mp4"),
+            name = "video.mp4" if st["part"] == 1 else f"video_part{st['part']}.mp4"
+            st["writer"] = cv2.VideoWriter(str(mission_dir / name),
                                            cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+            st["size"] = (w, h)
         st["writer"].write(frame)             # saved video has no text on it
 
         t = max(0.0, t_cap - mission_start)
@@ -570,6 +634,7 @@ def recorder_loop(args):
         if st["kf_log"] is not None:
             st["kf_log"].close()
             st["kf_log"] = None
+        announce(f"Recording stopped. {keyframe_idx} key frames saved")
         dropped = stats["rec_dropped"]
         print(f"[saved] {mission_dir.resolve()}  ({keyframe_idx} keyframes, {len(events)} events"
               f"{', ' + str(dropped) + ' frames dropped' if dropped else ''})")
@@ -605,27 +670,44 @@ def find_arduino():
 
 def handle_serial_line(line):
     """One line of text from the Arduino."""
-    global last_hb, pins, last_tap1
+    global last_hb, pins, pins_raw, pins_rest, sketch_ver, last_tap1
     if line == "TAP1":
         now = time.time()
+        tap_counts[0] += 1
+        press_seen[0] = now
         if now - last_tap1 < tap_lockout:     # one touch sometimes fires twice
             print("[arduino] extra tap ignored (too soon after the last one)")
             return
         last_tap1 = now
         toggle("arduino")
     elif line == "TAP2":
+        tap_counts[1] += 1
+        press_seen[1] = time.time()
         add_event("hazard", "arduino")
-    elif line.startswith("HB"):               # heartbeat: "HB <d2> <d3>"
+    elif line.startswith("HB"):               # heartbeat. v3: "HB p2 p3 r2 r3 i2 i3"   old v2: "HB <d2> <d3>"
         try:
-            vals = [int(x) for x in line.split()[1:3]]
+            vals = [int(x) for x in line.split()[1:7]]
         except ValueError:
             return
+        now, old_sketch = time.time(), False
         with lock:
-            last_hb = time.time()
-            if len(vals) == 2:
-                pins = vals
-    elif line == "READY":
-        print("[arduino] sketch started (READY)")
+            last_hb = now
+            if len(vals) == 6:                # pressed, raw level, resting level for D2 and D3
+                sketch_ver, pins, pins_raw, pins_rest = 3, vals[0:2], vals[2:4], vals[4:6]
+                for i in (0, 1):
+                    if vals[i]:
+                        press_seen[i] = now
+            elif len(vals) == 2:
+                old_sketch = sketch_ver != 2
+                sketch_ver, pins = 2, vals
+        if old_sketch:
+            print("[arduino] the board runs the OLD v2 sketch. It only sees parts that rest LOW, so a button "
+                  "that rests HIGH (D2=1 on the test page) never taps. Stop this script, upload "
+                  "tap_buttons/tap_buttons.ino (v3), then start this again.")
+    elif line.startswith("READY"):
+        print(f"[arduino] sketch started ({line})")
+    elif line.startswith("INFO"):             # v3 tells us what each pin rests at
+        print(f"[arduino] {line[4:].strip()}")
     elif line:
         print(f"[arduino] unexpected text from board: {line!r}  "
               f"(old or wrong sketch on the board, or baud rate is not 9600)")
@@ -635,16 +717,22 @@ def serial_loop(port):
     global arduino_ok
     while not shutdown:
         try:
-            with serial.Serial(port, 9600, timeout=1) as ser:
+            with serial.Serial(port, 9600, timeout=1, write_timeout=1) as ser:
                 arduino_ok = True
-                opened, warned = time.time(), False
+                opened, warned, asked = time.time(), False, False
                 print(f"[arduino] connected on {port}")
                 while not shutdown:
+                    if not asked and time.time() - opened > 0.5:
+                        asked = True
+                        try:
+                            ser.write(b"L")   # v3 sketch: learn what the buttons rest at, right now
+                        except serial.SerialException:
+                            pass              # not listening. It still learned them when it booted
                     line = ser.readline().decode(errors="ignore").strip()
                     handle_serial_line(line)
                     if not warned and last_hb < opened and time.time() - opened > 5:
                         warned = True
-                        print("[arduino] port is open but the board is SILENT. The v2 "
+                        print("[arduino] port is open but the board is SILENT. "
                               "tap_buttons.ino is not running on it. Stop this script "
                               "(Ctrl+C), upload the sketch, then start this again.")
         except Exception as e:
@@ -666,6 +754,7 @@ button.sel{background:#2e7d32}
 .mono{font-family:monospace;margin:6px;font-size:14px}
 #p{color:#9ad}
 #a b{padding:2px 8px;border-radius:4px;background:#333}#a b.on{background:#2e7d32}
+.warn{color:#fb4}
 .row{margin:10px auto;max-width:640px;padding:8px;border:1px solid #2a2a2a;border-radius:8px}
 .row .t{font-size:13px;color:#aaa;margin-bottom:4px}
 #log{text-align:left;max-width:520px;margin:10px auto;font-family:monospace;font-size:14px}
@@ -677,6 +766,14 @@ button.sel{background:#2e7d32}
 <button class=big style="background:#1565c0" onclick="fetch('/toggle')">Start / Stop</button>
 <button class=big style="background:#c62828" onclick="fetch('/mark?label=hazard')">Mark hazard</button>
 </div>
+<div class=row><div class=t>VOICE COMMS &nbsp; <span id=cm></span></div>
+<input id=sayt type=text placeholder="type a message and press Speak" style="width:60%;padding:8px;border-radius:6px;border:0"
+ onkeydown="if(event.key==='Enter')speak()">
+<button onclick="speak()">Speak</button></div>
+<div class=row><div class=t>ROTATE &nbsp; picture sideways or upside down? turn it here (the saved video and keyframes follow)</div>
+<button onclick="fetch('/rotate?turn=ccw')">&#8634; Rotate left</button>
+<button onclick="fetch('/rotate?turn=cw')">&#8635; Rotate right</button>
+<span id=rv class=mono></span></div>
 <div class=row><div class=t>SHUTTER &nbsp; picture smears or warps when you move? pick a lower number (sharper, but darker)</div>
 <span id=exp></span></div>
 <div class=row><div class=t>BRIGHTNESS BOOST (gain), only used when the shutter is locked</div>
@@ -696,26 +793,31 @@ const EXPS=['auto',-4,-5,-6,-7,-8];
 const PRES=['light','balanced','sharp','ultra'];
 $('exp').innerHTML=EXPS.map(e=>'<button data-e="'+e+'" onclick="fetch(\\'/camera?exposure='+e+'\\')">'+(e==='auto'?'Auto':e)+'</button>').join('');
 $('pre').innerHTML=PRES.map(p=>'<button data-p="'+p+'" onclick="fetch(\\'/tune?preset='+p+'\\')">'+p[0].toUpperCase()+p.slice(1)+'</button>').join('');
-let boot=null,down=false;
+let boot=null,down=false,lastRot=null;
+function speak(){const t=$('sayt').value.trim();if(t)fetch('/say?text='+encodeURIComponent(t));$('sayt').value=''}
 const pin=(n,x)=>'<b class="'+(x===1?'on':'')+'">'+n+'='+(x===null?'?':x)+'</b>';
 async function tick(){
  let s;
  try{s=await(await fetch('/status')).json()}
  catch(e){down=true;$('s').textContent='backpack script is not running';return}
  if(boot&&boot!==s.boot){location.reload();return}
- if(down){$('v').src='/stream?'+Date.now()}
- boot=s.boot;down=false;
+ if(down||(lastRot!==null&&lastRot!==s.rotate)){$('v').src='/stream?'+Date.now()}
+ boot=s.boot;down=false;lastRot=s.rotate;
+ $('rv').textContent='now: '+s.rotate;
  $('s').textContent=s.active?('LIVE  '+s.elapsed+'s   keyframes '+s.keyframes):'standby';
  $('p').textContent='camera '+s.cam_fps+' fps ('+s.cam_mode+')   stream '+s.enc_fps+' fps made, '+s.sent_fps+' sent'
    +(s.active?'   recording '+s.rec_fps+' fps'+(s.rec_dropped?' ('+s.rec_dropped+' dropped)':''):'')
    +'   encode '+s.enc_ms+' ms';
  $('a').innerHTML=!s.arduino?'arduino: NOT CONNECTED (port busy or unplugged)':
-  !s.sketch?'arduino: connected but SILENT - upload the v2 tap_buttons.ino':
-  'arduino: OK &nbsp; '+pin('D2',s.pins[0])+' '+pin('D3',s.pins[1]);
+  !s.sketch?'arduino: connected but SILENT - upload tap_buttons.ino (v3)':
+  'arduino: OK &nbsp; '+pin('D2',s.pins[0])+' '+pin('D3',s.pins[1])+' &nbsp; '
+  +(s.sketch_version>=3?'taps '+s.taps[0]+' / '+s.taps[1]+' &nbsp; (1 = pressed)'
+   :'<span class=warn>OLD v2 sketch on the board: a button that rests at 1 never taps. Upload tap_buttons.ino v3</span>');
  document.querySelectorAll('[data-e]').forEach(b=>b.classList.toggle('sel',String(s.exposure)===b.dataset.e));
  document.querySelectorAll('[data-p]').forEach(b=>b.classList.toggle('sel',s.preset===b.dataset.p));
  document.querySelectorAll('[data-f]').forEach(b=>b.classList.toggle('sel',s.focus===b.dataset.f));
  $('gv').textContent=s.gain===null?'':'gain '+s.gain;
+ $('cm').textContent=!s.comms?'(off)':'voice: '+s.comms.engine+(s.comms.last_said?'   last: "'+s.comms.last_said+'"':'');
  try{const e=await(await fetch('/events')).json();
  $('log').innerHTML=e.slice(-8).reverse().map(x=>x.clock+'  <b>'+x.label+'</b>  t='+x.t+'s  keyframe '+x.keyframe).join('<br>')}catch(e){}
 }
@@ -796,6 +898,8 @@ def current_preset():
 @app.route("/status")
 def status():
     with lock:
+        now = time.time()                     # a quick tap stays lit for a moment so the page can show it
+        shown = [None if p is None else int(bool(p) or now - press_seen[i] < 0.8) for i, p in enumerate(pins)]
         out = {
             "version": VERSION,
             "boot": boot_id,
@@ -806,7 +910,12 @@ def status():
             "keyframes": keyframe_idx,
             "arduino": arduino_ok,
             "sketch": arduino_ok and (time.time() - last_hb) < 2.0,
-            "pins": pins,
+            "sketch_version": sketch_ver,
+            "pins": shown,
+            "pins_raw": pins_raw,
+            "pins_rest": pins_rest,
+            "taps": list(tap_counts),
+            "rotate": cam_state["rotate"],
             "exposure": cam_state["exposure"],
             "gain": cam_state["gain"],
             "focus": cam_state["focus"],
@@ -814,6 +923,7 @@ def status():
             "tune": dict(tune),
         }
     out.update(stats)
+    out["comms"] = comms.status() if (comms is not None and voice_on) else None
     if not active:
         out["enc_fps"] = 0.0
     return jsonify(out)
@@ -851,6 +961,15 @@ def mark():
     return ("ok", 200) if ok else ("no mission running", 409)
 
 
+@app.route("/say")
+def http_say():
+    if comms is None or not voice_on:
+        return ("voice comms are off (comms.py missing or --no-voice)", 503)
+    text = request.args.get("text", "")
+    queued = comms.say(text)
+    return jsonify({"queued": queued, "text": " ".join(text.split())[:300]})
+
+
 @app.route("/tune")
 def http_tune():
     preset = request.args.get("preset")
@@ -867,6 +986,20 @@ def http_tune():
         return ("bad number", 400)
     print(f"[stream] {tune['max']}px  {tune['fps']:.0f} fps  quality {tune['q']}")
     return jsonify(tune)
+
+
+@app.route("/rotate")
+def http_rotate():
+    turn, to = request.args.get("turn"), request.args.get("dir")
+    if to in ROTATIONS:
+        cam_state["rotate"] = to
+    elif turn in ("cw", "ccw"):               # 90 degrees from wherever it is now
+        step = 1 if turn == "cw" else -1
+        cam_state["rotate"] = TURN_ORDER[(TURN_ORDER.index(cam_state["rotate"]) + step) % 4]
+    else:
+        return ("use /rotate?turn=cw|ccw  or  /rotate?dir=none|cw|ccw|180", 400)
+    print(f"[camera] rotation -> {cam_state['rotate']}")
+    return jsonify({"rotate": cam_state["rotate"]})
 
 
 @app.route("/camera")
@@ -904,7 +1037,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--camera", default="1",
                     help="camera number (0 = built-in, 1 = Logitech usually) or a video file for testing")
-    ap.add_argument("--rotate", default="none", choices=list(ROTATIONS))
+    ap.add_argument("--rotate", default="none", choices=list(ROTATIONS),
+                    help="rotation to START with. The glasses camera needs none. "
+                         "Change it live with the Rotate buttons on the test page.")
     ap.add_argument("--width", type=int, default=1920)
     ap.add_argument("--height", type=int, default=1080)
     ap.add_argument("--backend", default="dshow", choices=["dshow", "msmf"],
@@ -920,16 +1055,26 @@ if __name__ == "__main__":
     ap.add_argument("--preset", default="sharp", choices=list(PRESETS), help="live stream quality")
     ap.add_argument("--tap-lockout", type=float, default=1.0,
                     help="ignore a second start/stop tap within this many seconds")
+    ap.add_argument("--no-voice", action="store_true", help="turn off spoken comms")
     ap.add_argument("--out", default=None, help="where recordings go. Default: <home>/vt26_recordings")
     ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--serial", default=None, help="Arduino port like COM5. Blank = auto-detect.")
     args = ap.parse_args()
 
     tune.update(PRESETS[args.preset])
+    cam_state["rotate"] = args.rotate
     tap_lockout = args.tap_lockout
     out_root = Path(args.out) if args.out else Path.home() / "vt26_recordings"
     out_root.mkdir(parents=True, exist_ok=True)
     print(f"tap_stream {VERSION}")
+    voice_on = not args.no_voice
+    if comms is None:
+        print("[comms] comms.py not found next to this script, voice is off")
+    elif voice_on:
+        print("[comms] voice on: " + ("ElevenLabs key found" if comms.status()["has_key"]
+                                      else "NO ElevenLabs key set, using the Windows voice (see top of comms.py)"))
+        comms.prewarm(["Recording started", "hazard marked", "Comms online"])
+        announce("Comms online")
     print(f"Recordings folder: {out_root}")
 
     threads = [threading.Thread(target=f, args=(args,), daemon=True)
