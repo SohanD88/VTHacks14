@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useLiveCamera } from './hooks/useLiveCamera';
 import { Dashboard } from './components/Dashboard';
 import { Modeler } from './components/Modeler';
 import { api, ApiError } from './services/api';
 import type { Preset, ScanResponse } from './types';
 
 export function App() {
+  const camera = useLiveCamera();
   const [view, setView] = useState(location.hash === '#modeler' ? 'modeler' : 'dashboard');
   const [scan, setScan] = useState<ScanResponse>();
   const [busy, setBusy] = useState(false);
@@ -51,7 +53,7 @@ export function App() {
     } finally { pending.current = null; setBusy(false); }
   };
   return <main className={`app-shell ${view === 'modeler' ? 'is-modeling' : ''}`}>
-    <Dashboard active={view === 'dashboard'} scan={scan} busy={busy} error={error} health={health} onScan={runScan} onOpen={() => navigate('modeler')} onCheckHealth={() => void checkHealth()} />
-    <Modeler active={view === 'modeler'} scan={scan} onBack={() => navigate('dashboard')} />
+    <Dashboard camera={camera} active={view === 'dashboard'} scan={scan} busy={busy} error={error} health={health} onScan={runScan} onOpen={() => navigate('modeler')} onCheckHealth={() => void checkHealth()} />
+    <Modeler camera={camera} active={view === 'modeler'} scan={scan} onBack={() => navigate('dashboard')} />
   </main>;
 }

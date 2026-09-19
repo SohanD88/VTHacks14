@@ -69,7 +69,13 @@ class ScanResponse(BaseModel):
     stats: ScanStats
 
 
+class CameraHealth(BaseModel):
+    engine: Literal["rf-detr-nano"] = "rf-detr-nano"
+    model: Literal["unloaded", "loading", "ready", "error"] = "unloaded"
+
+
 class HealthResponse(BaseModel):
+    camera: CameraHealth = Field(default_factory=CameraHealth)
     status: Literal["ok"] = "ok"
     service: str = "spatial-intelligence-api"
     processing_mode: Literal["mock"] = "mock"

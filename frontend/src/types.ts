@@ -30,5 +30,8 @@ export interface ScanResponse {
   detections: { kind: string; count: number; confidence: number }[];
   stats: { rooms_mapped: number; objects: number; frames: number; keyframes: number; coverage_percent: number };
 }
-export interface HealthResponse { status: 'ok'; service: string; processing_mode: 'mock' }
+export interface HealthResponse {
+  status: 'ok'; service: string; processing_mode: 'mock';
+  camera: { engine: 'rf-detr-nano'; model: 'unloaded' | 'loading' | 'ready' | 'error' };
+}
 export interface ApiErrorResponse { error: { code: string; message: string; request_id: string; fields: string[] } }

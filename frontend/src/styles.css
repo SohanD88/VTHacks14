@@ -174,3 +174,30 @@ input:focus-visible, select:focus-visible { outline:2px solid var(--accent); out
 @media (max-width:620px) { .tool-list button > span:first-child { display:block; } }
 
 .app-shell.is-modeling { position:relative; height:100vh; overflow:hidden; }
+
+/* Live camera shares one stream across the dashboard and modeling room. */
+.live-camera { display:flex; flex-direction:column; gap:10px; }
+.camera-toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.camera-toolbar .primary-action { flex-shrink:0; }
+.camera-model-state { color:var(--accent); text-transform:uppercase; font-size:9px; margin-left:auto; }
+.camera-selector { min-width:0; flex:1; color:var(--muted); font-size:10px; }
+.camera-selector select { margin-top:3px; font-size:11px; padding:7px; }
+.live-stage { position:relative; background:#030607; width:100%; height:300px; min-height:0; }
+.live-stage video, .detection-overlay { display:block; position:absolute; width:100%; height:100%; inset:0; object-fit:contain; }
+.detection-overlay { pointer-events:none; }
+.camera-message { color:var(--muted); font-size:11px; line-height:1.5; min-height:32px; }
+.camera-message button { border:0; background:none; color:var(--accent); cursor:pointer; padding:4px 0; display:block; }
+.camera-metrics { display:flex; justify-content:space-between; gap:10px; font-size:9px; color:var(--muted); }
+.is-compact { gap:6px; }
+.is-compact .camera-toolbar { padding:6px 8px 0; }
+.is-compact .primary-action { height:26px; font-size:8px; padding:0 7px; }
+.is-compact .live-stage { height:125px; }
+.is-compact .camera-message { padding:0 8px 8px; font-size:9px; }
+.is-compact .camera-placeholder { padding:8px; gap:5px; }
+.is-compact .camera-placeholder .empty-cube { font-size:22px; }
+.is-compact .camera-placeholder strong { font-size:10px; }
+.detections-panel .detection-list { max-height:230px; overflow:auto; }
+@media (max-width:620px) {
+  .is-compact .live-stage { height:90px; }
+  .is-compact .camera-model-state { font-size:8px; }
+}

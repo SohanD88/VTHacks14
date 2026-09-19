@@ -17,3 +17,5 @@ test-results/
 .vscode/
 !.vscode/extensions.json
 !.vscode/settings.json
+
+.model-cache/

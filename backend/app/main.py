@@ -9,8 +9,10 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from app.config import Settings, get_settings
+from app.routes.camera import router as camera_router
 from app.routes.scans import router as scans_router
 from app.schemas import HealthResponse
+from app.services.detection import CameraDetector
 from app.services.reconstruction import MockReconstructionService
 from app.services.store import ScanStore
 
@@ -21,6 +23,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     config = settings or get_settings()
     logging.basicConfig(level=config.log_level, format="%(asctime)s %(levelname)s %(message)s")
     api = FastAPI(title="Spatial Intelligence API", version="0.1.0")
+    api.state.settings = config
+    api.state.detector = CameraDetector(config.detection_confidence, config.model_cache)
     api.state.reconstruction = MockReconstructionService()
     api.state.scan_store = ScanStore(config.max_stored_scans)
     api.add_middleware(
@@ -90,9 +94,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @api.get("/api/health", response_model=HealthResponse, tags=["health"])
     def health() -> HealthResponse:
-        return HealthResponse()
+        return HealthResponse(camera={"engine": "rf-detr-nano", "model": api.state.detector.state})
 
     api.include_router(scans_router)
+    api.include_router(camera_router)
     return api
 
 

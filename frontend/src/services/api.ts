@@ -1,6 +1,6 @@
 import type { ApiErrorResponse, HealthResponse, ScanRequest, ScanResponse } from '../types';
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+export const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public requestId?: string) {
