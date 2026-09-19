@@ -133,7 +133,6 @@ input:focus-visible, select:focus-visible { outline:2px solid var(--accent); out
 .camera-placeholder p, .scene-empty p { font-size:12px; color:var(--muted); line-height:1.7; max-width:260px; margin:0; }
 .empty-cube { color:var(--accent); font-size:40px; font-weight:300; }
 .environment-panel { cursor:default; }
-.expand-button { border:1px solid var(--line); background:transparent; color:var(--accent); width:30px; height:30px; font-size:22px; cursor:pointer; }
 .scene-host { position:relative; width:100%; }
 .scene-host.preview { height:calc(100% - 75px); min-height:290px; }
 .scene-host.modeler { height:100%; }

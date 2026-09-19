@@ -41,7 +41,7 @@ export function Dashboard({ camera, active, scan, busy, error, health, onScan, o
     <div className="dashboard-grid">
       <section className="panel camera-panel" aria-labelledby="camera-title"><div className="panel-heading"><div><span className="panel-index">01</span><h2 id="camera-title">Live camera</h2></div><span className="live-badge">{camera.stream ? 'Live' : 'Offline'}</span></div><CameraFeed camera={camera} /></section>
       <section className="panel environment-panel" aria-labelledby="environment-title">
-        <div className="panel-heading"><div><span className="panel-index">02</span><h2 id="environment-title">3D environment</h2></div><button className="expand-button" onClick={onOpen} aria-label="Open the full 3D modeling environment">↗</button></div>
+        <div className="panel-heading"><div><span className="panel-index">02</span><h2 id="environment-title">3D environment</h2></div></div>
         <SceneViewer scene={scan?.scene} active={active} mode="preview" onOpen={onOpen} />
         <div className="environment-meta"><span>Drag to rotate</span><span>Scroll to zoom</span></div>
         <button className="open-cue" onClick={onOpen}>Enter model <span aria-hidden="true">↗</span></button>
