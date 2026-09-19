@@ -117,24 +117,24 @@
       return [this.width * .5 + rx * scale, this.height * .46 - ry * scale, depth];
     }
 
-    line(a, b, color = 'rgba(110, 240, 210, .55)', width = 1) {
+    line(a, b, color = 'rgba(0, 215, 245, .58)', width = 1) {
       const p1 = this.project(a), p2 = this.project(b);
       this.ctx.beginPath(); this.ctx.moveTo(p1[0], p1[1]); this.ctx.lineTo(p2[0], p2[1]);
       this.ctx.strokeStyle = color; this.ctx.lineWidth = width; this.ctx.stroke();
     }
 
-    polygon(points, fill, stroke = 'rgba(120, 205, 190, .35)') {
+    polygon(points, fill, stroke = 'rgba(0, 215, 245, .38)') {
       const p = points.map((point) => this.project(point));
       this.ctx.beginPath(); this.ctx.moveTo(p[0][0], p[0][1]); p.slice(1).forEach((q) => this.ctx.lineTo(q[0], q[1])); this.ctx.closePath();
       this.ctx.fillStyle = fill; this.ctx.fill(); this.ctx.strokeStyle = stroke; this.ctx.lineWidth = 1; this.ctx.stroke();
     }
 
-    box(x, y, z, w, h, d, color = 'rgba(46, 101, 96, .34)') {
+    box(x, y, z, w, h, d, color = 'rgba(24, 42, 47, .42)') {
       const v = [[x,y,z],[x+w,y,z],[x+w,y,z+d],[x,y,z+d],[x,y+h,z],[x+w,y+h,z],[x+w,y+h,z+d],[x,y+h,z+d]];
       this.polygon([v[0],v[1],v[5],v[4]], color);
-      this.polygon([v[1],v[2],v[6],v[5]], 'rgba(35, 76, 80, .34)');
-      this.polygon([v[4],v[5],v[6],v[7]], 'rgba(77, 142, 125, .28)');
-      [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]].forEach(([a,b]) => this.line(v[a],v[b],'rgba(120, 225, 199, .52)',.8));
+      this.polygon([v[1],v[2],v[6],v[5]], 'rgba(15, 28, 33, .42)');
+      this.polygon([v[4],v[5],v[6],v[7]], 'rgba(33, 52, 58, .36)');
+      [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]].forEach(([a,b]) => this.line(v[a],v[b],'rgba(0, 215, 245, .56)',.8));
     }
 
     label(text, point, color = '#6df6d1') {
@@ -154,23 +154,23 @@
         this.line([i, 0, -5], [i, 0, 5], 'rgba(102, 158, 160, .09)');
       }
 
-      this.polygon([[-4,0,-3.3],[4,0,-3.3],[4,0,3.3],[-4,0,3.3]], 'rgba(30, 73, 72, .2)', 'rgba(105, 246, 209, .38)');
-      this.polygon([[-4,0,-3.3],[-4,2.5,-3.3],[4,2.5,-3.3],[4,0,-3.3]], 'rgba(28, 63, 69, .24)');
-      this.polygon([[-4,0,-3.3],[-4,0,3.3],[-4,2.5,3.3],[-4,2.5,-3.3]], 'rgba(26, 55, 63, .26)');
+      this.polygon([[-4,0,-3.3],[4,0,-3.3],[4,0,3.3],[-4,0,3.3]], 'rgba(18, 30, 34, .22)', 'rgba(0, 215, 245, .42)');
+      this.polygon([[-4,0,-3.3],[-4,2.5,-3.3],[4,2.5,-3.3],[4,0,-3.3]], 'rgba(19, 31, 35, .28)');
+      this.polygon([[-4,0,-3.3],[-4,0,3.3],[-4,2.5,3.3],[-4,2.5,-3.3]], 'rgba(14, 24, 28, .3)');
       this.box(-2.7,0,-1.7,1.7,.72,.85);
-      this.box(.45,0,-2.4,2.3,.8,.75,'rgba(41, 84, 96, .34)');
-      this.box(1.45,0,.4,1.7,.42,1.25,'rgba(55, 104, 92, .3)');
-      this.box(-2.25,0,1.25,.75,.95,.75,'rgba(49, 91, 86, .3)');
-      this.box(-.15,0,.55,.72,.72,.72,'rgba(57, 102, 97, .32)');
+      this.box(.45,0,-2.4,2.3,.8,.75,'rgba(29, 45, 51, .4)');
+      this.box(1.45,0,.4,1.7,.42,1.25,'rgba(25, 40, 45, .38)');
+      this.box(-2.25,0,1.25,.75,.95,.75,'rgba(21, 36, 41, .38)');
+      this.box(-.15,0,.55,.72,.72,.72,'rgba(32, 48, 53, .4)');
 
       const pulse = .6 + Math.sin(time * .002) * .2;
-      this.label('ENTRY / D-05', [3.65,1.6,-3.28], `rgba(105,246,209,${pulse})`);
-      this.label('OBJECT / 09', [-.1,.85,.55], '#ffca69');
-      this.label('CAM-04', [-3.6,.12,2.8], '#78a7ff');
-      this.line([-3.6,.08,2.8],[-2.6,.08,1.6],'rgba(120,167,255,.75)',2);
-      this.line([-2.6,.08,1.6],[-1.2,.08,.8],'rgba(120,167,255,.75)',2);
-      this.line([-1.2,.08,.8],[.2,.08,-.2],'rgba(120,167,255,.75)',2);
-      this.line([.2,.08,-.2],[1.8,.08,-1.35],'rgba(120,167,255,.75)',2);
+      this.label('ENTRY / D-05', [3.65,1.6,-3.28], `rgba(0,215,245,${pulse})`);
+      this.label('OBJECT / 09', [-.1,.85,.55], '#f7f9fa');
+      this.label('CAM-04', [-3.6,.12,2.8], '#00d7f5');
+      this.line([-3.6,.08,2.8],[-2.6,.08,1.6],'rgba(0,215,245,.82)',2);
+      this.line([-2.6,.08,1.6],[-1.2,.08,.8],'rgba(0,215,245,.82)',2);
+      this.line([-1.2,.08,.8],[.2,.08,-.2],'rgba(0,215,245,.82)',2);
+      this.line([.2,.08,-.2],[1.8,.08,-1.35],'rgba(0,215,245,.82)',2);
       requestAnimationFrame((t) => this.draw(t));
     }
 
