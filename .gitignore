@@ -1,5 +1,6 @@
 .DS_Store
 .ruff_cache/
+.pytest_cache/
 __pycache__/
 *.py[cod]
 .venv/
@@ -9,6 +10,10 @@ venv/
 !.env.example
 node_modules/
 build/
+frontend/dist/
+*.tsbuildinfo
+playwright-report/
+test-results/
 .vscode/
 !.vscode/extensions.json
 !.vscode/settings.json
