@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="A live spatial intelligence dashboard and interactive 3D modeling workspace." />
+    <title>Spatial Intelligence Platform</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23090d12'/%3E%3Cpath d='M8 11l8-4 8 4-8 4-8-4zm0 5l8 4 8-4m-16 5l8 4 8-4' fill='none' stroke='%236dfbd3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="view dashboard-view is-active" id="dashboard" aria-label="Spatial intelligence dashboard" aria-hidden="false">
+        <header class="topbar frame-corners">
+          <div class="brand-lockup">
+            <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+            <div>
+              <p class="eyebrow">Field system / Unit 04</p>
+              <h1>Spatial Intelligence</h1>
+            </div>
+          </div>
+          <div class="status-cluster">
+            <span class="signal-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            <div><span class="status-dot"></span> Scan active</div>
+            <time id="missionClock">23:48:12</time>
+          </div>
+        </header>
+
+        <div class="dashboard-grid">
+          <section class="panel camera-panel" aria-labelledby="camera-title">
+            <div class="panel-heading">
+              <div><span class="panel-index">01</span><h2 id="camera-title">Live camera</h2></div>
+              <span class="live-badge"><i></i> Live</span>
+            </div>
+            <div class="camera-feed" aria-label="Simulated live camera feed">
+              <div class="camera-room">
+                <span class="room-edge edge-a"></span><span class="room-edge edge-b"></span>
+                <span class="room-edge edge-c"></span><span class="room-edge edge-d"></span>
+                <div class="target-box target-person"><span>PERSON</span><b>96%</b></div>
+                <div class="target-box target-door"><span>DOOR</span><b>89%</b></div>
+              </div>
+              <div class="camera-hud"><span>CAM-04</span><span>1920 × 1080</span><span>30 FPS</span></div>
+              <div class="scanline"></div>
+            </div>
+          </section>
+
+          <button class="panel environment-panel" id="openModeler" type="button" aria-label="Open the full 3D modeling environment">
+            <div class="panel-heading">
+              <div><span class="panel-index">02</span><h2>3D environment</h2></div>
+              <span class="expand-icon" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            </div>
+            <canvas class="scene-canvas" data-scene="preview" aria-label="Rotating three-dimensional room preview"></canvas>
+            <div class="environment-meta"><span>Drag to rotate</span><span>Scroll to zoom</span></div>
+            <div class="open-cue"><span>Enter model</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg></div>
+          </button>
+
+          <section class="panel detections-panel" aria-labelledby="detections-title">
+            <div class="panel-heading compact">
+              <div><span class="panel-index">03</span><h2 id="detections-title">Detections</h2></div>
+              <span class="muted">4 classes</span>
+            </div>
+            <div class="detection-list">
+              <div><span class="object-icon person-icon"></span><strong>Person</strong><em>02</em><div><i style="--value:96%"></i></div><b>96%</b></div>
+              <div><span class="object-icon door-icon"></span><strong>Door</strong><em>05</em><div><i style="--value:89%"></i></div><b>89%</b></div>
+              <div><span class="object-icon chair-icon"></span><strong>Chair</strong><em>09</em><div><i style="--value:93%"></i></div><b>93%</b></div>
+              <div><span class="object-icon stairs-icon"></span><strong>Staircase</strong><em>01</em><div><i style="--value:82%"></i></div><b>82%</b></div>
+            </div>
+          </section>
+
+          <section class="panel spatial-panel" aria-labelledby="spatial-title">
+            <div class="panel-heading compact">
+              <div><span class="panel-index">04</span><h2 id="spatial-title">Spatial model</h2></div>
+              <span class="sync-state">Synced</span>
+            </div>
+            <div class="model-stats">
+              <article><span>Rooms mapped</span><strong>03</strong><small>+1 this scan</small></article>
+              <article><span>Objects</span><strong>19</strong><small>17 classified</small></article>
+              <article><span>Frames</span><strong>127</strong><small>42 keyframes</small></article>
+              <article class="coverage-stat"><span>Coverage</span><strong>62%</strong><div class="coverage-ring" style="--coverage:62"><span>62</span></div></article>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view modeler-view" id="modeler" aria-label="3D modeling environment" aria-hidden="true">
+        <header class="modeler-topbar">
+          <button class="icon-button back-button" id="closeModeler" type="button" aria-label="Return to dashboard">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>
+          </button>
+          <div class="model-title"><span class="status-dot"></span><div><p>Active reconstruction</p><h1>Level 01 / Operations model</h1></div></div>
+          <div class="model-actions"><span class="saved-state">All changes synced</span><button type="button" class="primary-action">Export model</button></div>
+        </header>
+
+        <div class="modeler-workspace">
+          <canvas class="scene-canvas modeler-canvas" data-scene="modeler" aria-label="Interactive three-dimensional room model"></canvas>
+          <div class="model-grid" aria-hidden="true"></div>
+
+          <aside class="floating-panel feed-float">
+            <div class="float-heading"><span><i></i> Live feed</span><button type="button" aria-label="Minimize camera feed">−</button></div>
+            <div class="mini-feed"><div class="mini-target">PERSON · 96%</div><div class="scanline"></div></div>
+            <div class="feed-stats"><span>CAM-04</span><span>30 FPS</span></div>
+          </aside>
+
+          <aside class="floating-panel tools-float" aria-label="3D render tools">
+            <div class="float-heading"><span>Render tools</span><kbd>T</kbd></div>
+            <div class="tool-list" role="toolbar" aria-label="Model tools">
+              <button class="is-selected" type="button" data-tool="Select" aria-label="Select tool"><svg viewBox="0 0 24 24"><path d="M6 3l12 9-7 1 4 6-2 1-4-6-3 5V3z"/></svg><span>Select</span><kbd>V</kbd></button>
+              <button type="button" data-tool="Move" aria-label="Move tool"><svg viewBox="0 0 24 24"><path d="M12 2v20M2 12h20M12 2l-3 3m3-3l3 3M22 12l-3-3m3 3l-3 3M12 22l3-3m-3 3l-3-3M2 12l3 3m-3-3l3-3"/></svg><span>Move</span><kbd>G</kbd></button>
+              <button type="button" data-tool="Rotate" aria-label="Rotate tool"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 10-2 6M20 5v6h-6"/></svg><span>Rotate</span><kbd>R</kbd></button>
+              <button type="button" data-tool="Measure" aria-label="Measure tool"><svg viewBox="0 0 24 24"><path d="M4 17L17 4l3 3L7 20l-3-3zm5-5l3 3m0-6l3 3"/></svg><span>Measure</span><kbd>M</kbd></button>
+              <button type="button" data-tool="Annotate" aria-label="Annotate tool"><svg viewBox="0 0 24 24"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4zm10-13l3 3"/></svg><span>Annotate</span><kbd>A</kbd></button>
+            </div>
+          </aside>
+
+          <div class="view-controls" aria-label="View controls">
+            <button id="zoomOut" type="button" aria-label="Zoom out">−</button>
+            <button id="resetView" type="button">Reset view</button>
+            <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
+          </div>
+
+          <div class="orientation-widget" aria-hidden="true"><span class="axis-z">Z</span><span class="axis-x">X</span><span class="axis-y">Y</span></div>
+
+          <section class="agent-dock" aria-labelledby="agent-title">
+            <div class="agent-heading"><div><span class="panel-index">AI</span><div><h2 id="agent-title">Agent toolbox</h2><p>Scene-aware assistance</p></div></div><button id="toggleAgents" type="button" aria-expanded="true">Collapse</button></div>
+            <div class="agent-cards">
+              <button type="button" data-agent="Pathfinder"><span class="agent-icon">PF</span><div><strong>Pathfinder</strong><small>Calculate safest route</small></div><em>Ready</em></button>
+              <button type="button" data-agent="Scene Analyst"><span class="agent-icon">SA</span><div><strong>Scene analyst</strong><small>Identify structural risks</small></div><em>Ready</em></button>
+              <button type="button" data-agent="Planner"><span class="agent-icon">PL</span><div><strong>Planner</strong><small>Simulate movement options</small></div><em>Ready</em></button>
+              <button type="button" data-agent="Annotator"><span class="agent-icon">AN</span><div><strong>Annotator</strong><small>Label rooms and objects</small></div><em>Ready</em></button>
+            </div>
+          </section>
+
+          <div class="toast" id="toast" role="status" aria-live="polite"></div>
+        </div>
+      </section>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>
