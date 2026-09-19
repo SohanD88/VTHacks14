@@ -25,8 +25,8 @@ class StubDetector:
 
 
 @pytest.fixture
-def client():
-    app = create_app(Settings())
+def client(tmp_path):
+    app = create_app(Settings(data_dir=tmp_path / "data"))
     app.state.detector = StubDetector()
     with TestClient(app) as client:
         yield client
@@ -62,7 +62,7 @@ def test_detection_protocol_and_scan_coexist(client):
         ]
         assert response["processing_ms"] >= 0
         assert client.get("/api/health").json()["camera"]["model"] == "ready"
-        assert client.post("/api/scans", json={"name": "Still works"}).status_code == 201
+        assert client.get("/api/scans").status_code == 200
 
 
 def test_bad_frames_recover_without_reconnecting(client):

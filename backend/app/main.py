@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 from time import perf_counter
 from uuid import uuid4
 
@@ -13,8 +14,9 @@ from app.routes.camera import router as camera_router
 from app.routes.scans import router as scans_router
 from app.schemas import HealthResponse
 from app.services.detection import CameraDetector
-from app.services.reconstruction import MockReconstructionService
+from app.services.reconstruction import ReconstructionService
 from app.services.store import ScanStore
+from app.services.vision import VisionModels
 
 logger = logging.getLogger("spatial.api")
 
@@ -22,15 +24,23 @@ logger = logging.getLogger("spatial.api")
 def create_app(settings: Settings | None = None) -> FastAPI:
     config = settings or get_settings()
     logging.basicConfig(level=config.log_level, format="%(asctime)s %(levelname)s %(message)s")
-    api = FastAPI(title="Spatial Intelligence API", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(api):
+        yield
+        api.state.scan_store.close()
+
+    api = FastAPI(title="Spatial Intelligence API", version="0.2.0", lifespan=lifespan)
     api.state.settings = config
     api.state.detector = CameraDetector(config.detection_confidence, config.model_cache)
-    api.state.reconstruction = MockReconstructionService()
-    api.state.scan_store = ScanStore(config.max_stored_scans)
+    api.state.reconstruction = ReconstructionService(VisionModels(config.model_cache))
+    api.state.scan_store = ScanStore(
+        config.data_dir, config.max_stored_scans, config.max_storage_bytes
+    )
     api.add_middleware(
         CORSMiddleware,
         allow_origins=config.cors_origins,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Content-Type"],
         expose_headers=["X-Request-ID"],
     )
@@ -55,7 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             request,
             422,
             "validation_error",
-            "Check the scan name, source, and demo preset.",
+            "Check the request fields, scene format and video upload.",
             fields,
         )
 

@@ -19,4 +19,7 @@ test-results/
 !.vscode/settings.json
 
 .model-cache/
+
+.spatial-data/
+backend/.spatial-data/
 backend/glassesFiles/recordings/

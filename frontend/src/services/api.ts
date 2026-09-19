@@ -1,43 +1,135 @@
-import type { ApiErrorResponse, HealthResponse, ScanRequest, ScanResponse } from '../types';
-
-export const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
-
+import type {
+  ApiErrorResponse,
+  ExportBundle,
+  HealthResponse,
+  Mode,
+  ScanResponse,
+  ScaleCalibration,
+  Scene,
+} from "../types";
+export const API_BASE = (import.meta.env.VITE_API_BASE_URL || "/api").replace(
+  /\/$/,
+  "",
+);
 export class ApiError extends Error {
-  constructor(message: string, public status: number, public requestId?: string) {
+  constructor(
+    message: string,
+    public status: number,
+    public requestId?: string,
+  ) {
     super(message);
-    this.name = 'ApiError';
+    this.name = "ApiError";
   }
 }
-
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   try {
     const response = await fetch(`${API_BASE}${path}`, {
       ...options,
-      headers: { 'Content-Type': 'application/json', ...options.headers },
-      signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(20000)]) : AbortSignal.timeout(20000),
+      headers: {
+        ...(options.body instanceof FormData
+          ? {}
+          : { "Content-Type": "application/json" }),
+        ...options.headers,
+      },
+      signal: options.signal
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(120000)])
+        : AbortSignal.timeout(120000),
     });
-    const payload = await response.json().catch(() => null);
+    const body = await response.json().catch(() => null);
     if (!response.ok) {
-      const body = payload as ApiErrorResponse | null;
-      throw new ApiError(body?.error?.message || `API request failed (${response.status}).`,
-        response.status, body?.error?.request_id);
+      const error = body as ApiErrorResponse;
+      throw new ApiError(
+        error?.error?.message || `Request failed (${response.status})`,
+        response.status,
+        error?.error?.request_id,
+      );
     }
-    if (payload === null) throw new ApiError('The API returned an unreadable response.', response.status);
-    return payload as T;
+    if (body === null)
+      throw new ApiError("Unreadable API response.", response.status);
+    return body as T;
   } catch (error) {
     if (error instanceof ApiError) throw error;
-    if (error instanceof DOMException && error.name === 'AbortError') throw error;
-    if (error instanceof DOMException && error.name === 'TimeoutError') {
-      throw new ApiError('The scan request timed out. Check the backend and try again.', 0);
-    }
-    throw new ApiError('Cannot reach the API. Start the backend, then try again.', 0);
+    if (error instanceof DOMException && error.name === "AbortError")
+      throw error;
+    throw new ApiError("Cannot reach the API. Check the backend and retry.", 0);
   }
 }
-
 export const api = {
-  health: (signal?: AbortSignal) => request<HealthResponse>('/health', { signal }),
-  createScan: (body: ScanRequest, signal?: AbortSignal) => request<ScanResponse>('/scans', {
-    method: 'POST', body: JSON.stringify(body), signal,
-  }),
-  getScan: (id: string, signal?: AbortSignal) => request<ScanResponse>(`/scans/${encodeURIComponent(id)}`, { signal }),
+  health: (signal?: AbortSignal) =>
+    request<HealthResponse>("/health", { signal }),
+  list: () => request<ScanResponse[]>("/scans"),
+  upload: (
+    file: File,
+    name: string,
+    mode: Mode,
+    source: "video" | "capture",
+    signal?: AbortSignal,
+  ) => {
+    const form = new FormData();
+    form.set("file", file);
+    form.set("name", name);
+    form.set("mode", mode);
+    form.set("source", source);
+    return request<ScanResponse>("/scans", {
+      method: "POST",
+      body: form,
+      signal,
+    });
+  },
+  getScan: (id: string) => request<ScanResponse>(`/scans/${id}`),
+  status: (id: string) => request<ScanResponse>(`/scans/${id}/status`),
+  cancel: (id: string) => request(`/scans/${id}/cancel`, { method: "POST" }),
+  delete: (id: string) => request(`/scans/${id}`, { method: "DELETE" }),
+  original: (id: string) => request<Scene>(`/scans/${id}/original`),
+  save: async (
+    scan: ScanResponse,
+    scene: Scene,
+    structural: boolean,
+    confirmed = false,
+  ) => {
+    const changes = scene.objects
+      .filter((o) => {
+        const old = scan.scene?.objects.find((x) => x.id === o.id);
+        return (
+          !old ||
+          JSON.stringify([o.position, o.rotation, o.scale, o.deleted]) !==
+            JSON.stringify([old.position, old.rotation, old.scale, old.deleted])
+        );
+      })
+      .map((o) => ({
+        id: o.id,
+        position: o.position,
+        rotation: o.rotation,
+        scale: o.scale,
+        deleted: o.deleted,
+      }));
+    const scaleChanged =
+      JSON.stringify(scene.calibration ?? null) !==
+      JSON.stringify(scan.scene?.calibration ?? null);
+    if (!changes.length && !scaleChanged) return { ...scan, scene };
+    const result = await request<ScanResponse>(`/scans/${scan.id}/transforms`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        revision: scan.revision,
+        changes,
+        calibration: scene.calibration ?? null,
+        structural_editing: structural,
+        confirm_structural_deletion: confirmed,
+      }),
+    });
+    return { ...result, scene };
+  },
+  calibrate: (scan: ScanResponse, calibration: ScaleCalibration | null) =>
+    request<ScanResponse>(`/scans/${scan.id}/calibration`, {
+      method: "POST",
+      body: JSON.stringify({ revision: scan.revision, calibration }),
+    }),
+  reset: (id: string) =>
+    request<ScanResponse>(`/scans/${id}/reset`, { method: "POST" }),
+  export: (id: string) => request<ExportBundle>(`/scans/${id}/export`),
+  import: (bundle: unknown) =>
+    request<ScanResponse>("/scans/import", {
+      method: "POST",
+      body: JSON.stringify(bundle),
+    }),
 };
