@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Object detection · Live demo</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">◉</span> SPATIAL / VISION</div>
+      <div class="top-note">LIVE OBJECT DETECTION <span class="top-dot"></span> LOCAL PROTOTYPE</div>
+    </header>
+    <section class="intro">
+      <div class="eyebrow">CAMERA INTELLIGENCE / 001</div>
+      <h1>See what your camera sees.</h1>
+      <p>Point your webcam at an everyday object. Detection runs on the Python server, while your live video stays in this browser.</p>
+    </section>
+    <section class="workspace">
+      <div class="camera-panel">
+        <div class="panel-head"><span>CAMERA FEED</span><span id="camera-status" class="status">OFFLINE</span></div>
+        <div id="stage" class="stage">
+          <video id="video" autoplay muted playsinline></video>
+          <canvas id="overlay"></canvas>
+          <div id="empty-state" class="empty-state"><div class="focus-icon">⌗</div><strong>Camera is offline</strong><span>Start your webcam to begin detecting objects.</span></div>
+        </div>
+        <div class="camera-controls">
+          <button id="toggle-camera" class="primary-button">Start camera <span>↗</span></button>
+          <select id="camera-select" aria-label="Choose camera" hidden></select>
+          <span class="frame-note">UP TO 3 FRAMES / SEC</span>
+        </div>
+      </div>
+      <aside class="side-panel">
+        <div class="panel-head"><span>SCENE INTELLIGENCE</span><span id="model-status" class="status">STANDBY</span></div>
+        <div class="metric"><span>OBJECTS IN VIEW</span><strong id="object-count">00</strong></div>
+        <div class="list-title">CURRENT DETECTIONS <span id="update-time">—</span></div>
+        <div id="detection-list" class="detection-list"><div class="list-empty">Detected objects will appear here.</div></div>
+        <div class="side-footer"><span class="pulse"></span><span id="message" role="status">Ready to connect.</span></div>
+      </aside>
+    </section>
+    <footer>RF-DETR NANO / COCO <span>·</span> BROWSER CAMERA → WEBSOCKET → PYTHON</footer>
+  </main>
+</body>
+</html>
