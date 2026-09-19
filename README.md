@@ -142,3 +142,22 @@ Dependencies install with `uv sync --locked`. The initial connection downloads t
 Key additions: `frontend/src/services/liveCamera.ts` owns capture, sampling, reconnect, and cleanup; `frontend/src/hooks/useLiveCamera.ts` shares session state; `backend/app/services/detection.py` owns model loading/inference; `backend/app/routes/camera.py` owns the validated socket protocol. Camera tests use a virtual browser camera and controlled detector results; backend tests cover the real socket contract with a stub model. These tests do not access a physical webcam.
 
 Optional actual-model check (downloads weights on first use): from `backend/`, run `uv run python scripts/smoke_camera.py /path/to/image.jpg`. Omit the image path to send a blank synthetic frame through the real WebSocket and model.
+
+## Glasses camera source
+
+The `smayanGlasses` capture script and Arduino sketch are included in `backend/glassesFiles/`; the branch's sample recordings are excluded. The camera is a USB webcam attached to the **same computer** as the dashboard. The glasses script opens that webcam and serves video on port 8080. The browser should use the computer's built-in webcam when **Computer webcam** is selected; a camera already opened by the glasses script usually cannot be opened by the browser at the same time.
+
+In a third terminal at the repository root, install the glasses script's separate dependencies and start it:
+
+```bash
+cd backend/glassesFiles
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python tap_stream.py --camera 1 --rotate ccw
+```
+
+Use the camera index and rotation appropriate for your hardware (`--camera 0` is another common index). On Windows, activate the virtual environment and run `python tap_stream.py --camera 1 --rotate ccw`. Open `http://127.0.0.1:8080/` to check the glasses stream and recording controls. The script serves only the local computer by default. It serves real camera video immediately; tapping sensor 1 or using its test page starts and stops **recording** without interrupting live video. If a second touch sensor is attached, set `NUM_SENSORS = 2` in the Arduino sketch to enable hazard markers during a mission. Recordings are saved outside the repository by default at `~/vt26_recordings`.
+
+In the dashboard camera panel, select **Glasses camera**. The address defaults to `http://127.0.0.1:8080` and is remembered in this browser. Click **Start camera**. The MJPEG `/stream` supplies the preview; `/frame.jpg` supplies up to about three sampled frames per second to the existing RF-DETR WebSocket. Results and overlays appear in both dashboard and modeling views. **Rotate 90°** turns the selected live preview and detector frames clockwise in quarter turns, keeping boxes aligned; its angle carries over when switching sources or views. The script's `--rotate` option rotates its own stream and saved recordings before they reach the dashboard. Switching back to **Computer webcam** stops glasses polling and starts browser capture. The glasses script continues running until stopped in its terminal. If the stream or detector disconnects, use **Retry detection** after checking the relevant process.
+
+The glasses script requires local camera access and its own process. This integration provides live 2D detection; the demo 3D reconstruction is still separate.

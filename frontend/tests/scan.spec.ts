@@ -72,7 +72,7 @@ test('mobile layout and modeler deep link work before scanning', async ({ page }
   await expect(page.getByTestId('object-count')).toHaveText('6');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/mobile.png', fullPage: true });
-  await page.getByRole('button', { name: 'Open the full 3D modeling environment' }).click();
+  await page.getByRole('button', { name: 'Enter model' }).click();
   await expect(page.getByRole('button', { name: 'Return to dashboard' })).toBeInViewport();
   await expect(page.getByTestId('scene-modeler').locator('canvas')).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);

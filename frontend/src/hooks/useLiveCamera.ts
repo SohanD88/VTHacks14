@@ -9,6 +9,8 @@ export function useLiveCamera() {
     window.addEventListener('pagehide', stop);
     return () => { window.removeEventListener('pagehide', stop); stop(); };
   }, [session]);
-  return { ...state, start: session.start, stop: session.stop, retry: session.retry };
+  return { ...state, start: session.start, stop: session.stop, retry: session.retry,
+    rotate: session.rotate, selectSource: session.selectSource, setGlassesUrl: session.setGlassesUrl,
+    previewFailed: session.previewFailed };
 }
 export type LiveCamera = ReturnType<typeof useLiveCamera>;
