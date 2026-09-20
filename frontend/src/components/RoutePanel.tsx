@@ -16,21 +16,30 @@ export function RoutePanel({ scene, route, disabled, onPick }: Props) {
         ["door", "doorway", "entrance", "exit", "opening"].includes(o.kind)),
   );
   return (
-    <details open className="route-panel">
-      <summary>Pathfinder</summary>
-      <p className="input-meta">
-        Choose floor points in the model or doorway destinations. Paths follow
-        the saved scene.
-      </p>
+    <section className="route-panel" aria-label="Pathfinder">
+      <div className="route-intro">
+        <span className="route-badge">Single-floor routing</span>
+        <h3>Where do you want to go?</h3>
+        <p>
+          Choose two places. Pathfinder finds a route around the obstacles in
+          your saved model.
+        </p>
+      </div>
       <fieldset disabled={disabled}>
-        <legend>Route points</legend>
-        {(["start", "end"] as const).map((which) => {
+        <legend className="visually-hidden">Route points</legend>
+        {(["start", "end"] as const).map((which, index) => {
           const endpoint = route[which];
           const title = which === "start" ? "Start" : "Destination";
           return (
-            <div key={which}>
+            <div
+              key={which}
+              className={`route-endpoint route-endpoint-${which}`}
+            >
               <label>
-                {title}
+                <span className="route-step">
+                  <span aria-hidden="true">{index + 1}</span>
+                  {title}
+                </span>
                 <select
                   aria-label={`Route ${which}`}
                   value={
@@ -45,7 +54,11 @@ export function RoutePanel({ scene, route, disabled, onPick }: Props) {
                     )
                   }
                 >
-                  <option value="">Choose a doorway or pick a point</option>
+                  <option value="">
+                    {doors.length
+                      ? "Choose a doorway…"
+                      : "Pick a point in the model"}
+                  </option>
                   {endpoint?.point && (
                     <option value="point" disabled>
                       Picked floor point
@@ -60,20 +73,22 @@ export function RoutePanel({ scene, route, disabled, onPick }: Props) {
               </label>
               <button
                 type="button"
+                className="route-pick"
                 aria-pressed={route.picking === which}
                 onClick={() => onPick(which)}
               >
-                Pick {title.toLowerCase()} in model
+                Pick {title.toLowerCase()} in model{" "}
+                <span aria-hidden="true">↗</span>
               </button>
               {endpoint?.point && (
-                <p className="input-meta">
-                  {endpoint.point.map((v) => v.toFixed(2)).join(", ")} m
+                <p className="route-coordinates">
+                  XYZ · {endpoint.point.map((v) => v.toFixed(2)).join(" / ")} m
                 </p>
               )}
             </div>
           );
         })}
-        <div className="editor-toolbar">
+        <div className="route-actions">
           <button
             className="primary-action"
             disabled={!route.start || !route.end || route.busy}
@@ -90,38 +105,101 @@ export function RoutePanel({ scene, route, disabled, onPick }: Props) {
         </div>
       </fieldset>
       {route.picking && (
-        <p role="status">
-          Click a floor or doorway for the{" "}
-          {route.picking === "start" ? "start" : "destination"}.{" "}
+        <div className="route-picking" role="status">
+          <strong>
+            Choose your{" "}
+            {route.picking === "start" ? "starting point" : "destination"}
+          </strong>
+          <p>
+            Click a floor surface or doorway in the model. You can still drag to
+            orbit.
+          </p>
           <button onClick={route.cancelPick}>Cancel point selection</button>
-        </p>
+        </div>
       )}
       {route.error && (
-        <p role="alert" className="editor-error">
-          {route.error}
-        </p>
+        <div role="alert" className="route-error">
+          <strong>We couldn’t plan this route</strong>
+          <p>{route.error}</p>
+        </div>
       )}
       {route.result ? (
-        <div role="status" data-testid="route-result">
-          <strong>
-            Estimated path · {route.result.distance_m.toFixed(2)} m
-          </strong>
-          <p className="input-meta">
-            Green: start. Orange: destination. Clearance from modeled obstacles:{" "}
-            {route.result.clearance_m.toFixed(2)} m.
-          </p>
-          {route.result.warnings.map((warning) => (
-            <p className="input-meta" key={warning}>
-              {warning}
-            </p>
-          ))}
-        </div>
+        <section
+          className="route-explanation"
+          role="status"
+          data-testid="route-result"
+          aria-label="Route explanation"
+        >
+          <span className="route-badge">Estimated path</span>
+          <div className="route-distance">
+            {route.result.distance_m.toFixed(2)} <span>meters</span>
+          </div>
+          <div className="route-metrics">
+            <span>
+              Obstacle clearance
+              <strong>{Math.round(route.result.clearance_m * 100)} cm</strong>
+            </span>
+            <span>
+              Floor coverage<strong>Single level</strong>
+            </span>
+          </div>
+          <h3>How this path was planned</h3>
+          <ol>
+            <li>
+              <strong>Follow the modeled floor.</strong> The planner searches
+              the saved floor geometry for the shortest available grid route.
+            </li>
+            <li>
+              <strong>Go around obstacles.</strong> Walls and furniture block
+              the route, with {Math.round(route.result.clearance_m * 100)} cm of
+              clearance. Missing floor sections are excluded.
+            </li>
+            <li>
+              <strong>
+                {route.result.start.object_id || route.result.end.object_id
+                  ? "Use a clear doorway approach."
+                  : "Connect the selected areas."}
+              </strong>{" "}
+              {route.result.start.object_id || route.result.end.object_id
+                ? "Doorway markers sit on nearby reachable floor. They do not confirm that a door is open."
+                : "Floor points snap to the routing grid; markers show the resolved endpoints."}
+            </li>
+          </ol>
+          <div className="route-legend">
+            <span>
+              <i /> Start
+            </span>
+            <span>
+              <i /> Destination
+            </span>
+          </div>
+          <details className="route-limits">
+            <summary>Model limits & uncertainties</summary>
+            {route.result.warnings.map((warning) => (
+              <p key={warning}>{warning}</p>
+            ))}
+          </details>
+        </section>
       ) : (
-        <p className="input-meta">
-          Single floor only. Distances and access are estimates; doorway
-          destinations stop at a clear approach.
-        </p>
+        !route.picking && (
+          <div className="route-empty">
+            <strong>
+              {route.busy
+                ? "Checking the modeled floor…"
+                : "Your route will appear here"}
+            </strong>
+            <p>
+              {route.busy
+                ? "Finding a connection around walls and furniture."
+                : "Select a start and destination, then choose Find path to see the distance and how it was planned."}
+            </p>
+          </div>
+        )
       )}
-    </details>
+      <p className="route-disclaimer">
+        Paths are estimates from the model. Real-world access and hazards are
+        unverified.
+      </p>
+    </section>
   );
 }

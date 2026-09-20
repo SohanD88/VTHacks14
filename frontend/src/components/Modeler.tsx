@@ -44,7 +44,32 @@ export function Modeler({ camera, active, scan, onChange, onBack }: Props) {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const [panel, setPanel] = useState(true);
+  const [navigationOpen, setNavigationOpen] = useState(
+    () => window.innerWidth > 1000,
+  );
+  const [inspectorOpen, setInspectorOpen] = useState(
+    () => window.innerWidth > 1000,
+  );
+  const togglePanel = (side: "navigation" | "inspector") => {
+    if (side === "navigation") {
+      setNavigationOpen((open) => !open);
+      if (window.innerWidth <= 1000) setInspectorOpen(false);
+    } else {
+      setInspectorOpen((open) => !open);
+      if (window.innerWidth <= 1000) setNavigationOpen(false);
+    }
+  };
+  useEffect(() => {
+    const narrow = window.matchMedia("(max-width: 1000px)");
+    const resize = () => {
+      if (narrow.matches) {
+        setNavigationOpen(false);
+        setInspectorOpen(false);
+      }
+    };
+    narrow.addEventListener("change", resize);
+    return () => narrow.removeEventListener("change", resize);
+  }, []);
   const importInput = useRef<HTMLInputElement>(null);
   const importedNotice = useRef<string | undefined>(undefined);
   const scene = scan?.scene;
@@ -89,7 +114,7 @@ export function Modeler({ camera, active, scan, onChange, onBack }: Props) {
         setPast((p) => [...p, scene]);
       }
       onChange(result);
-      setNotice("Edits saved locally.");
+      setNotice("Changes saved.");
     } catch (e) {
       setError((e as Error).message);
       onChange({ ...scan, scene: { ...scene } });
@@ -285,7 +310,128 @@ export function Modeler({ camera, active, scan, onChange, onBack }: Props) {
           </button>
         </div>
       </header>
-      <div className="editor-layout">
+      <nav className="sandbox-panel-bar" aria-label="Sandbox panels">
+        <button
+          aria-expanded={navigationOpen}
+          aria-controls="navigation-panel"
+          onClick={() => togglePanel("navigation")}
+        >
+          <span aria-hidden="true">☷</span> Agent & Pathfinder
+        </button>
+        <span className="sandbox-hint">Drag to orbit · Scroll to zoom</span>
+        <button
+          aria-expanded={inspectorOpen}
+          aria-controls="object-panel"
+          onClick={() => togglePanel("inspector")}
+        >
+          Object editor <span aria-hidden="true">☷</span>
+        </button>
+      </nav>
+      <div
+        className="editor-layout sandbox-layout"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            if (event.target instanceof HTMLElement) event.target.blur();
+            setNavigationOpen(false);
+            setInspectorOpen(false);
+            route.cancelPick();
+            setPickingReference(false);
+            document
+              .querySelector<HTMLButtonElement>(".sandbox-panel-bar button")
+              ?.focus();
+          }
+        }}
+      >
+        <aside
+          id="navigation-panel"
+          className="editor-navigation sandbox-drawer"
+          aria-label="Agent and Pathfinder"
+          hidden={!navigationOpen}
+        >
+          <header className="drawer-heading">
+            <div>
+              <span className="drawer-eyebrow">Plan your next move</span>
+              <h2>Agent & Pathfinder</h2>
+            </div>
+            <button
+              className="drawer-close"
+              aria-label="Close Agent and Pathfinder"
+              onClick={() => setNavigationOpen(false)}
+            >
+              ←
+            </button>
+          </header>
+          <div className="drawer-content">
+            {scene && (
+              <RoutePanel
+                scene={scene}
+                route={route}
+                disabled={saving}
+                onPick={(which) => {
+                  setPickingReference(false);
+                  setTool("orbit");
+                  route.pick(which);
+                  if (window.innerWidth <= 1000) setNavigationOpen(false);
+                }}
+              />
+            )}
+
+            {!scene && (
+              <div className="drawer-empty">
+                <h3>A model is your starting point</h3>
+                <p>
+                  Open a completed scan or import a scene to choose destinations
+                  and plan a path.
+                </p>
+              </div>
+            )}
+            <details className="agent-capabilities">
+              <summary>Agent capabilities</summary>
+              <p className="input-meta">
+                Choose destinations in the model or from the doorway lists.
+                Natural-language mission commands are not connected to this
+                workspace yet.
+              </p>
+            </details>
+            {scan?.warnings.some((warning) =>
+              warning.startsWith("Visual review"),
+            ) && (
+              <details>
+                <summary>Model quality review</summary>
+                {scan.warnings
+                  .filter(
+                    (warning) =>
+                      warning.startsWith("Visual review") ||
+                      warning.startsWith("Review concern:"),
+                  )
+                  .map((warning, index) => (
+                    <p className="input-meta" key={index}>
+                      {warning}
+                    </p>
+                  ))}
+                {scan.source !== "import" && (
+                  <a
+                    href={`${API_BASE}/scans/${scan.id}/artifacts/gemini-review.json`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View review report
+                  </a>
+                )}
+                <p className="input-meta">
+                  Visual review does not verify measurements or safe exit
+                  routes.
+                </p>
+              </details>
+            )}
+            {
+              <details>
+                <summary>Live camera (separate from scan)</summary>
+                <CameraFeed camera={camera} compact visible={active} />
+              </details>
+            }
+          </div>
+        </aside>
         <div className="editor-canvas">
           <SceneViewer
             scene={scene}
@@ -308,24 +454,50 @@ export function Modeler({ camera, active, scan, onChange, onBack }: Props) {
             structural={structural}
             layers={layers}
           />
-          <button className="panel-toggle" onClick={() => setPanel(!panel)}>
-            {panel ? "Hide inspector" : "Show inspector"}
-          </button>
+          <p
+            role={error ? "alert" : "status"}
+            className={`sandbox-notice ${error ? "editor-error" : "input-meta"}`}
+          >
+            {error || (saving ? "Saving edits…" : notice)}
+          </p>
         </div>
-        {panel && (
-          <aside className="editor-inspector" aria-label="Scene editor">
-            {scene && (
-              <RoutePanel
-                scene={scene}
-                route={route}
-                disabled={saving}
-                onPick={(which) => {
-                  setPickingReference(false);
-                  setTool("orbit");
-                  route.pick(which);
-                }}
-              />
-            )}
+        <aside
+          id="object-panel"
+          className="editor-inspector sandbox-drawer"
+          aria-label="Scene editor"
+          hidden={!inspectorOpen}
+        >
+          <header className="drawer-heading">
+            <div>
+              <span className="drawer-eyebrow">Refine your model</span>
+              <h2>Object editor</h2>
+            </div>
+            <button
+              className="drawer-close"
+              aria-label="Close object editor"
+              onClick={() => setInspectorOpen(false)}
+            >
+              →
+            </button>
+          </header>
+          <div className="drawer-content">
+            <label>
+              Scene element
+              <select
+                value={selected || ""}
+                onChange={(e) => setSelected(e.target.value || undefined)}
+              >
+                <option value="">Select an object</option>
+                {scene?.objects
+                  .filter((o) => !o.deleted)
+                  .map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                      {o.entrance ? " · opening candidate" : ""}
+                    </option>
+                  ))}
+              </select>
+            </label>
             <div
               className="editor-toolbar"
               role="toolbar"
@@ -373,82 +545,8 @@ export function Modeler({ camera, active, scan, onChange, onBack }: Props) {
                 Reset scene
               </button>
             </div>
-            <details open>
-              <summary>Visible layers</summary>
-              <div className="layer-controls">
-                {(
-                  [
-                    ["labels", "Semantic labels"],
-                    ["structure", "Structural geometry"],
-                    ["entrances", "Entrances / exits"],
-                    ["uncertain", "Low-confidence geometry"],
-                    ["transient", "Moving candidates"],
-                    ["path", "Camera path"],
-                    ["cutaway", "Cutaway walls / ceiling"],
-                    ["observed", "Observed surfaces"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <label key={key}>
-                    <input
-                      type="checkbox"
-                      checked={layers[key]}
-                      onChange={(e) =>
-                        setLayers({ ...layers, [key]: e.target.checked })
-                      }
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
-            </details>
-            {scene && (
-              <ScalePanel
-                key={scan?.id}
-                scene={scene}
-                points={referencePoints}
-                picking={pickingReference}
-                busy={saving}
-                onPick={() => {
-                  route.cancelPick();
-                  setReferencePoints([]);
-                  setPickingReference(true);
-                  setTool("orbit");
-                }}
-                onCancel={() => {
-                  setReferencePoints([]);
-                  setPickingReference(false);
-                }}
-                onApply={(reference) => void applyCalibration(reference)}
-              />
-            )}
-            <label className="structural-mode">
-              <input
-                type="checkbox"
-                checked={structural}
-                onChange={(e) => setStructural(e.target.checked)}
-              />
-              Enable structural editing
-            </label>
-            <label>
-              Scene element
-              <select
-                value={selected || ""}
-                onChange={(e) => setSelected(e.target.value || undefined)}
-              >
-                <option value="">Select an object</option>
-                {scene?.objects
-                  .filter((o) => !o.deleted)
-                  .map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                      {o.entrance ? " · opening candidate" : ""}
-                    </option>
-                  ))}
-              </select>
-            </label>
             {object ? (
               <>
-                <ObjectDetails object={object} />
                 <fieldset disabled={!editable}>
                   <legend>Transform</legend>
                   <div className="transform-fields">
@@ -505,6 +603,7 @@ export function Modeler({ camera, active, scan, onChange, onBack }: Props) {
                     <button onClick={remove}>Delete object</button>
                   </div>
                 </fieldset>
+                <ObjectDetails object={object} />
                 {object.structural && !structural && (
                   <p className="input-meta">
                     Protected structure. Enable structural editing to move or
@@ -545,51 +644,65 @@ export function Modeler({ camera, active, scan, onChange, onBack }: Props) {
                 transform gizmo.
               </p>
             )}
-            {scan?.warnings.some((warning) =>
-              warning.startsWith("Visual review"),
-            ) && (
-              <details open>
-                <summary>Model quality review</summary>
-                {scan.warnings
-                  .filter(
-                    (warning) =>
-                      warning.startsWith("Visual review") ||
-                      warning.startsWith("Review concern:"),
-                  )
-                  .map((warning, index) => (
-                    <p className="input-meta" key={index}>
-                      {warning}
-                    </p>
-                  ))}
-                {scan.source !== "import" && (
-                  <a
-                    href={`${API_BASE}/scans/${scan.id}/artifacts/gemini-review.json`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    View review report
-                  </a>
-                )}
-                <p className="input-meta">
-                  Visual review does not verify measurements or safe exit
-                  routes.
-                </p>
-              </details>
+            <details>
+              <summary>Visible layers</summary>
+              <div className="layer-controls">
+                {(
+                  [
+                    ["labels", "Semantic labels"],
+                    ["structure", "Structural geometry"],
+                    ["entrances", "Entrances / exits"],
+                    ["uncertain", "Low-confidence geometry"],
+                    ["transient", "Moving candidates"],
+                    ["path", "Camera path"],
+                    ["cutaway", "Cutaway walls / ceiling"],
+                    ["observed", "Observed surfaces"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key}>
+                    <input
+                      type="checkbox"
+                      checked={layers[key]}
+                      onChange={(e) =>
+                        setLayers({ ...layers, [key]: e.target.checked })
+                      }
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </details>
+            {scene && (
+              <ScalePanel
+                key={scan?.id}
+                scene={scene}
+                points={referencePoints}
+                picking={pickingReference}
+                busy={saving}
+                onPick={() => {
+                  route.cancelPick();
+                  setReferencePoints([]);
+                  setPickingReference(true);
+                  if (window.innerWidth <= 1000) setInspectorOpen(false);
+                  setTool("orbit");
+                }}
+                onCancel={() => {
+                  setReferencePoints([]);
+                  setPickingReference(false);
+                }}
+                onApply={(reference) => void applyCalibration(reference)}
+              />
             )}
-            {
-              <details open>
-                <summary>Live camera (separate from scan)</summary>
-                <CameraFeed camera={camera} compact visible={active} />
-              </details>
-            }
-            <p
-              role={error ? "alert" : "status"}
-              className={error ? "editor-error" : "input-meta"}
-            >
-              {error || (saving ? "Saving edits…" : notice)}
-            </p>
-          </aside>
-        )}
+            <label className="structural-mode">
+              <input
+                type="checkbox"
+                checked={structural}
+                onChange={(e) => setStructural(e.target.checked)}
+              />
+              Enable structural editing
+            </label>
+          </div>
+        </aside>
       </div>
     </section>
   );

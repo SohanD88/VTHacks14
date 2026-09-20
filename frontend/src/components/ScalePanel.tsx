@@ -39,7 +39,7 @@ export function ScalePanel({
     total >= 0.05 &&
     total <= 20;
   return (
-    <details className="scale-panel" open>
+    <details className="scale-panel">
       <summary>Room scale</summary>
       <p className="input-meta" data-testid="scale-status">
         {scene.calibration

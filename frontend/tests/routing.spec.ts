@@ -107,9 +107,45 @@ test("route between doorways, clear after edits, and pick floor points", async (
     "Estimated path",
   );
   await expect(canvas).toHaveAttribute("data-route-markers", "2");
-  expect(Number(await canvas.getAttribute("data-route-points"))).toBeGreaterThan(
-    2,
+  expect(
+    Number(await canvas.getAttribute("data-route-points")),
+  ).toBeGreaterThan(2);
+  const navigation = page.getByRole("complementary", {
+    name: "Agent and Pathfinder",
+    exact: true,
+  });
+  const inspector = page.getByRole("complementary", {
+    name: "Scene editor",
+    exact: true,
+  });
+  const left = (await navigation.boundingBox())!;
+  const right = (await inspector.boundingBox())!;
+  const model = (await canvas.boundingBox())!;
+  expect(left.x + left.width).toBeLessThanOrEqual(model.x + 1);
+  expect(right.x).toBeGreaterThanOrEqual(model.x + model.width - 1);
+  await expect(
+    page.getByRole("heading", { name: "How this path was planned" }),
+  ).toBeVisible();
+  const navigationToggle = page.getByRole("button", {
+    name: "Agent & Pathfinder",
+    exact: true,
+  });
+  const inspectorToggle = page.getByRole("button", {
+    name: "Object editor",
+    exact: true,
+  });
+  await navigationToggle.click();
+  await expect(navigation).toBeHidden();
+  await expect(inspector).toBeVisible();
+  await expect(canvas).toHaveAttribute("data-route-markers", "2");
+  await navigationToggle.click();
+  await expect(page.getByTestId("route-result")).toContainText(
+    "Estimated path",
   );
+  await inspectorToggle.click();
+  await expect(inspector).toBeHidden();
+  await expect(navigation).toBeVisible();
+  await inspectorToggle.click();
   await page.screenshot({ path: "test-results/pathfinder-route.png" });
 
   await page.getByLabel("Scene element").selectOption("table");
@@ -143,5 +179,33 @@ test("route between doorways, clear after edits, and pick floor points", async (
   await expect(canvas).toHaveAttribute("data-route-markers", "1");
   await page.getByRole("button", { name: "Clear path", exact: true }).click();
   await expect(canvas).toHaveAttribute("data-route-markers", "0");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(navigation).toBeHidden();
+  await expect(inspector).toBeHidden();
+  await navigationToggle.click();
+  await expect(navigation).toBeVisible();
+  await expect(inspector).toBeHidden();
+  await page.getByRole("button", { name: "Pick start in model" }).click();
+  await expect(navigation).toBeHidden();
+  await navigationToggle.click();
+  await expect(
+    page.getByText("Choose your starting point", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Cancel point selection" }).click();
+  await page.screenshot({ path: "test-results/pathfinder-mobile.png" });
+  await inspectorToggle.click();
+  await expect(inspector).toBeVisible();
+  await expect(navigation).toBeHidden();
+  await page.getByText("Room scale", { exact: true }).click();
+  await expect(page.getByLabel("Reference width (feet)")).toBeVisible();
+  const width = await page.evaluate(() => ({
+    content: document.documentElement.scrollWidth,
+    viewport: innerWidth,
+  }));
+  expect(width.content).toBeLessThanOrEqual(width.viewport);
+  await page.getByLabel("Scene element").focus();
+  await page.keyboard.press("Escape");
+  await expect(inspector).toBeHidden();
+  await expect(navigationToggle).toBeFocused();
   expect(errors).toEqual([]);
 });

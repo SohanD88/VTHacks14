@@ -1,7 +1,18 @@
 import { createHash } from "node:crypto";
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+} from "@playwright/test";
 import type { ExportBundle, Scene, SceneObject } from "../src/types";
 const API = process.env.TEST_API_URL || "http://127.0.0.1:8014/api";
+async function openSection(page: Page, title: string) {
+  const summary = page
+    .locator("details:not([open]) > summary")
+    .filter({ hasText: new RegExp(`^${title}$`) });
+  if (await summary.count()) await summary.click();
+}
 function element(id: string, structural = false): SceneObject {
   return {
     id,
@@ -153,6 +164,7 @@ test("selection, transforms, deletion, history, protection, export/import and da
   await expect(
     page.getByRole("button", { name: "Delete object", exact: true }),
   ).toBeDisabled();
+  await openSection(page, "Visible layers");
   await page.getByLabel("Entrances / exits").uncheck();
   await page.getByLabel("Entrances / exits").check();
   const download = page.waitForEvent("download");
@@ -350,6 +362,7 @@ test("moving candidates stay out of the permanent layer and preserve export meta
     return false;
   };
   expect(await findChair()).toBe(false);
+  await openSection(page, "Visible layers");
   await page.getByLabel("Moving candidates", { exact: true }).check();
   expect(await findChair()).toBe(true);
   await page.getByLabel("Scene element").selectOption("chair");
@@ -466,6 +479,7 @@ test("cutaway shows furniture through clipped walls and hides mounted insets", a
     return undefined;
   };
   // With structure hidden, locate visible furniture by actual raycast feedback.
+  await openSection(page, "Visible layers");
   await page.getByLabel("Structural geometry", { exact: true }).uncheck();
   const target = await find("behind");
   expect(target).toBeTruthy();
@@ -514,6 +528,7 @@ test("Sandbox doorway scale picks, history, persistence, export and mobile contr
     .click();
   const canvas = page.getByTestId("scene-modeler").locator("canvas");
   await expect(canvas).toBeVisible();
+  await page.getByText("Room scale", { exact: true }).click();
   await expect(page.getByLabel("Reference width (feet)")).toHaveValue("3.5");
   await expect(
     page.getByRole("button", { name: "Apply room scale", exact: true }),
@@ -637,6 +652,10 @@ test("Sandbox doorway scale picks, history, persistence, export and mobile contr
   );
   const imported = await page.getByLabel("Recent scans").inputValue();
   await page.setViewportSize({ width: 390, height: 844 });
+  await page
+    .getByRole("button", { name: "Object editor", exact: true })
+    .click();
+  await openSection(page, "Room scale");
   await page.getByLabel("Reference width (feet)").scrollIntoViewIfNeeded();
   await expect(page.getByLabel("Reference width (feet)")).toBeVisible();
   expect(
@@ -757,6 +776,7 @@ for (const format of ["mesh", "blender"] as const) {
     await page.goto(`/?scan=${scan.id}#modeler`);
     const canvas = page.getByTestId("scene-modeler").locator("canvas");
     await expect(canvas).toHaveAttribute("data-highlighted-openings", "1");
+    await openSection(page, "Visible layers");
     const toggle = page.getByLabel("Entrances / exits", { exact: true });
     const box = (await canvas.boundingBox())!;
     let hit: { x: number; y: number } | undefined;
@@ -787,6 +807,7 @@ for (const format of ["mesh", "blender"] as const) {
     });
     await toggle.check();
     await expect(canvas).toHaveAttribute("data-highlighted-openings", "1");
+    await openSection(page, "Visible layers");
     await page.getByLabel("Structural geometry", { exact: true }).uncheck();
     await expect(canvas).toHaveAttribute("data-highlighted-openings", "0");
     const saved = await (await request.get(`${API}/scans/${scan.id}`)).json();
