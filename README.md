@@ -33,6 +33,36 @@ Built for **VTHacks 14**, Spare combines camera capture, AI-assisted reconstruct
 
 For a clearer reconstruction, record slowly, keep the room well lit, and capture overlapping views from different positions. Glasses capture is optional and requires the camera hardware and companion script.
 
+## Run locally
+
+Install **Node.js 22.12+**, **Python 3.11+**, and [uv](https://docs.astral.sh/uv/). Then clone the project:
+
+```bash
+git clone https://github.com/SohanD88/VTHacks14.git
+cd VTHacks14
+```
+
+**Start the backend:**
+
+```bash
+cd backend
+cp .env.example .env
+uv sync --locked
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+**In a second terminal, start the frontend** from the project folder:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Open **[localhost:5173](http://localhost:5173)**. Keep both terminals running.
+
+For the default **Blender** reconstruction mode, install Blender and set `SPATIAL_BLENDER_BINARY` to its executable path and `SPATIAL_BLENDER_API_KEY` to your Gemini API key in `backend/.env`, then restart the backend. On macOS, the Blender path is usually `/Applications/Blender.app/Contents/MacOS/Blender`. This generation workflow runs locally on macOS; other platforms need the container worker setup. See the [Blender integration guide](docs/blender-integration.md) and [container configuration](compose.yaml).
+
 ## A prototype with a purpose
 
 Spare works with real video, but its models and routes are estimates. Unseen areas, dimensions, and door access may be incomplete or incorrect; a suggested path is not a verified safe or emergency exit route. Natural-language agent commands are not connected yet.
