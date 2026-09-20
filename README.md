@@ -1,4 +1,4 @@
-# Spatial Intelligence · VTHacks14
+# Spare · VTHacks14
 
 A local video-to-3D reconstruction and editing application. Upload a room video or record a webcam, run a background reconstruction, inspect the observed room and camera path, edit furniture, and export/reload the complete scene.
 
