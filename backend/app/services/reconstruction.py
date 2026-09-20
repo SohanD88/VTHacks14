@@ -1,7 +1,6 @@
 """Real frame-to-depth-to-pose-to-semantic-mesh orchestration."""
 
 import json
-import resource
 import sys
 from collections import Counter
 from time import perf_counter
@@ -12,6 +11,52 @@ from app.services.geometry import Fusion, Tracker, write_ply
 from app.services.registration import refine_views
 from app.services.relocalization import recover_views
 from app.services.video import ProcessingError, extract
+
+try:
+    import resource  # Unix only
+except ImportError:  # Windows has no 'resource' module
+    resource = None
+
+
+def _peak_memory_mb() -> float:
+    """Peak memory of this process in MB. Reporting only; never allowed to fail a scan."""
+    try:
+        if resource is not None:
+            peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            return round(peak / (1024**2 if sys.platform == "darwin" else 1024), 1)
+        import ctypes
+        from ctypes import wintypes
+
+        class Counters(ctypes.Structure):
+            _fields_ = [
+                ("cb", wintypes.DWORD),
+                ("PageFaultCount", wintypes.DWORD),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        counters = Counters()
+        counters.cb = ctypes.sizeof(Counters)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        psapi = ctypes.WinDLL("psapi", use_last_error=True)
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        psapi.GetProcessMemoryInfo.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(Counters),
+            wintypes.DWORD,
+        ]
+        handle = kernel32.GetCurrentProcess()
+        if psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+            return round(counters.PeakWorkingSetSize / 1024**2, 1)
+    except Exception:
+        pass
+    return 0.0
 
 
 class ReconstructionService:
@@ -222,11 +267,7 @@ class ReconstructionService:
         stats.duplicate_observations_merged = fusion.merged
         stats.geometry_ms = round(geometry_ms)
         stats.vertices = sum(len(o.geometry.vertices) for o in scene.objects)
-        stats.peak_memory_mb = round(
-            resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            / (1024**2 if sys.platform == "darwin" else 1024),
-            1,
-        )
+        stats.peak_memory_mb = _peak_memory_mb()
         scan.scene = scene
         scan.warnings = warnings
         scan.processing_ms = round((perf_counter() - started) * 1000)

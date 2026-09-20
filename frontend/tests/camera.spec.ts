@@ -647,3 +647,160 @@ test("immediately stopped recording stays local and explains minimum length", as
     page.getByRole("button", { name: "Retry reconstruction", exact: true }),
   ).toBeDisabled();
 });
+
+test("LAN glasses recording loads for manual Gemini or Blender submission", async ({
+  page,
+}) => {
+  const origin = "http://192.168.1.42:8080";
+  const mission = "mission_20260920_120000";
+  let active = false;
+  let finished = false;
+  let uploads = 0;
+  let videoDownloads = 0;
+  const jpeg = Buffer.from(
+    (
+      await page.evaluate(() => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 320;
+        canvas.height = 240;
+        canvas.getContext("2d")!.fillRect(0, 0, 320, 240);
+        return canvas.toDataURL("image/jpeg");
+      })
+    ).split(",")[1],
+    "base64",
+  );
+  await page.routeWebSocket("**/api/camera/detect", (socket) => {
+    socket.send(JSON.stringify({ type: "status", status: "ready" }));
+  });
+  await page.route(`${origin}/**`, async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/status") {
+      await route.fulfill({
+        json: {
+          camera: true,
+          active,
+          elapsed: active ? 2 : 0,
+          tap_seq: 0,
+          last_mission: finished
+            ? {
+                name: mission,
+                video: `/missions/${mission}/video.mp4`,
+                bytes: 24,
+              }
+            : null,
+        },
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    } else if (path === "/start" || path === "/stop") {
+      active = path === "/start";
+      if (!active) finished = true;
+      await route.fulfill({
+        body: "ok",
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    } else if (path === `/missions/${mission}/video.mp4`) {
+      videoDownloads++;
+      await route.fulfill({
+        body: Buffer.from("saved-camera-video"),
+        contentType: "video/mp4",
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    } else {
+      await route.fulfill({
+        body: jpeg,
+        contentType: "image/jpeg",
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
+  });
+  await page.route("**/api/scans", (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    uploads++;
+    expect(route.request().postDataBuffer()?.toString()).toContain(
+      `${mission}.mp4`,
+    );
+    return route.fulfill({
+      status: 422,
+      json: { error: { message: "Controlled capture validation response" } },
+    });
+  });
+  await page.goto("/");
+  const dashboard = page.locator(".dashboard-view");
+  await dashboard.getByLabel("Camera source").selectOption("glasses");
+  await dashboard.getByLabel("Glasses stream address").fill(origin);
+  await dashboard
+    .getByRole("button", { name: "Start camera", exact: true })
+    .click();
+  await expect(dashboard.locator(".glasses-video")).toBeVisible();
+  await expect(
+    dashboard.getByRole("button", { name: "Start recording", exact: true }),
+  ).toBeEnabled();
+  await dashboard
+    .getByRole("button", { name: "Start recording", exact: true })
+    .click();
+  await expect(
+    dashboard.getByRole("button", { name: "Stop recording", exact: true }),
+  ).toBeEnabled();
+  await dashboard
+    .getByRole("button", { name: "Stop recording", exact: true })
+    .click();
+  await expect(
+    dashboard.locator(".uploaded-video + .input-meta"),
+  ).toContainText(`${mission}.mp4`);
+  await expect(
+    dashboard.getByRole("button", { name: "Reconstruct video", exact: true }),
+  ).toBeEnabled();
+  expect(videoDownloads).toBe(1);
+  expect(uploads).toBe(0);
+  await dashboard
+    .getByRole("button", { name: "Reconstruct video", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Controlled capture validation response",
+  );
+  expect(uploads).toBe(1);
+});
+
+test("Arduino button-only mode controls browser recording and camera mode cannot", async ({
+  page,
+}) => {
+  const origin = "http://192.168.1.43:8080";
+  let cameraMode = true;
+  let tapSeq = 0;
+  await page.routeWebSocket("**/api/camera/detect", (socket) => {
+    socket.send(JSON.stringify({ type: "status", status: "ready" }));
+  });
+  await page.route(`${origin}/status`, (route) =>
+    route.fulfill({
+      json: { camera: cameraMode, active: false, elapsed: 0, tap_seq: tapSeq },
+      headers: { "Access-Control-Allow-Origin": "*" },
+    }),
+  );
+  await page.goto("/");
+  const dashboard = page.locator(".dashboard-view");
+  await dashboard.getByLabel("Camera source").selectOption("glasses");
+  await dashboard.getByLabel("Glasses stream address").fill(origin);
+  await dashboard.getByLabel("Camera source").selectOption("computer");
+  await dashboard
+    .getByRole("button", { name: "Start camera", exact: true })
+    .click();
+  tapSeq++;
+  await page.waitForTimeout(600);
+  await expect(
+    dashboard.getByRole("button", { name: "Start recording", exact: true }),
+  ).toBeEnabled();
+  cameraMode = false;
+  await expect(dashboard.locator(".camera-panel")).toContainText(
+    "Arduino button connected",
+  );
+  tapSeq++;
+  await expect(
+    dashboard.getByRole("button", { name: "Stop recording", exact: true }),
+  ).toBeEnabled();
+  await page.waitForTimeout(1200);
+  tapSeq++;
+  await expect(dashboard.locator(".uploaded-video")).toBeVisible();
+  await expect(
+    dashboard.getByRole("button", { name: "Reconstruct video", exact: true }),
+  ).toBeEnabled();
+});

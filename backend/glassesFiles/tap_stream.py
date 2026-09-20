@@ -7,6 +7,21 @@ tap again to stop recording. Live viewing and detection continue between mission
   Touch sensor 1 (socket D2, sends TAP1) = start / stop the mission
   Touch sensor 2 (socket D3, sends TAP2) = drop a "hazard" marker
 
+v5.3: BUTTON-ONLY MODE for the dashboard's "Computer webcam" source.
+  When the browser itself opens the webcam, this script cannot also hold the camera
+  (Windows allows one program per camera). Run it with no camera instead:
+      python tap_stream.py --camera none
+  It then only listens to the Arduino and reports every tap in /status "tap_seq".
+  The dashboard watches that number and starts / stops ITS OWN recording on each tap.
+
+v5.2: the dashboard can follow and control recording. /status now reports the last
+  finished mission, and GET /missions/<name>/video.mp4 serves its video, so the
+  dashboard loads the recording by itself when you tap to stop.
+
+v5.1: works with tap_buttons.ino v3. That sketch learns whether each sensor or
+  button rests LOW or HIGH, so a part that rests HIGH (D2 stuck at 1 with the
+  old sketch) now starts and stops recording the moment it is pressed.
+
 WHY v5  (make it look like the Windows Camera app)
   The Windows Camera app looks perfect because it runs the webcam in its native
   compressed mode (MJPG) at 1080p / 30 fps with everything on automatic.
@@ -65,6 +80,8 @@ FOR THE UI TEAM  (all endpoints allow cross-origin requests)
                     "arduino", "sketch", "pins", "boot", "version",
                     "cam_fps", "enc_fps", "sent_fps", "rec_fps", "rec_dropped", ...}
   GET /events   -> [{"t": 8.2, "keyframe": 16, "label": "hazard", ...}, ...]
+  GET /missions/<name>/video.mp4   -> the saved video of a finished mission
+                   (/status "last_mission" tells you the newest finished one)
   GET /toggle   -> start or stop (same as tapping sensor 1)
   GET /start    /stop
   GET /mark?label=hazard        -> drop a marker from the UI
@@ -78,6 +95,7 @@ import csv
 import logging
 import os
 import queue
+import re
 import socket
 import threading
 import time
@@ -86,7 +104,7 @@ from pathlib import Path
 
 os.environ.setdefault("OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS", "0")   # avoids a very slow camera open with --backend msmf
 import cv2
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_file
 
 try:
     import serial
@@ -94,7 +112,7 @@ try:
 except ImportError:
     serial = None
 
-VERSION = "v5"
+VERSION = "v5.3"
 
 ROTATIONS = {
     "none": None,
@@ -116,6 +134,8 @@ boot_id = str(int(time.time() * 1000))   # changes every time the script starts
 
 shutdown = False        # whole program is exiting
 want_active = False     # what the taps / UI asked for
+tap_seq = 0             # counts every start/stop tap (Arduino or /toggle). The dashboard watches this.
+camera_on = True        # False with --camera none (button-only mode)
 active = False          # a mission is being recorded right now
 mission_no = 0
 
@@ -127,6 +147,7 @@ tap_lockout = 1.0
 
 out_root = Path("recordings")
 mission_dir = None
+last_mission = None     # newest FINISHED mission: {"name", "video", "seconds", "keyframes"}
 mission_start = 0.0
 frame_idx = 0
 keyframe_idx = 0
@@ -170,10 +191,12 @@ jpeg_box = Latest()     # newest encoded stream frame: bytes
 
 # ------------------------------------------------------------ controls
 def toggle(source):
-    global want_active
+    global want_active, tap_seq
     with lock:
-        want_active = not want_active
-        state = "START" if want_active else "STOP"
+        tap_seq += 1
+        if camera_on:
+            want_active = not want_active
+        state = ("START" if want_active else "STOP") if camera_on else f"TAP #{tap_seq} -> dashboard"
     print(f"[{source}] {state}")
 
 
@@ -538,7 +561,7 @@ def recorder_loop(args):
         stats["rec_ms"] = round(0.9 * stats["rec_ms"] + 0.1 * ms, 1) if stats["rec_ms"] else round(ms, 1)
 
     def end():
-        global active
+        global active, last_mission
         with lock:
             active = False                    # capture thread stops feeding the queue
         while True:                           # write whatever is still waiting
@@ -554,6 +577,16 @@ def recorder_loop(args):
         if st["kf_log"] is not None:
             st["kf_log"].close()
             st["kf_log"] = None
+        video = mission_dir / "video.mp4"
+        if video.exists() and video.stat().st_size > 0:
+            with lock:                        # the file is complete now, safe to hand out
+                last_mission = {
+                    "name": mission_dir.name,
+                    "video": f"/missions/{mission_dir.name}/video.mp4",
+                    "seconds": round(time.time() - mission_start, 1),
+                    "keyframes": keyframe_idx,
+                    "bytes": video.stat().st_size,
+                }
         dropped = stats["rec_dropped"]
         print(f"[saved] {mission_dir.resolve()}  ({keyframe_idx} keyframes, {len(events)} events"
               f"{', ' + str(dropped) + ' frames dropped' if dropped else ''})")
@@ -599,7 +632,7 @@ def handle_serial_line(line):
         toggle("arduino")
     elif line == "TAP2":
         add_event("hazard", "arduino")
-    elif line.startswith("HB"):               # heartbeat: "HB <d2> <d3>"
+    elif line.startswith("HB"):               # heartbeat: "HB <d2> <d3> ..." (1 = pressed; v3 adds more fields)
         try:
             vals = [int(x) for x in line.split()[1:3]]
         except ValueError:
@@ -608,8 +641,10 @@ def handle_serial_line(line):
             last_hb = time.time()
             if len(vals) == 2:
                 pins = vals
-    elif line == "READY":
-        print("[arduino] sketch started (READY)")
+    elif line.startswith("READY"):
+        print(f"[arduino] sketch started ({line})")
+    elif line.startswith("INFO"):             # v3 sketch reports what each pin rests at
+        print(f"[arduino] {line[4:].strip()}")
     elif line:
         print(f"[arduino] unexpected text from board: {line!r}  "
               f"(old or wrong sketch on the board, or baud rate is not 9600)")
@@ -619,16 +654,22 @@ def serial_loop(port):
     global arduino_ok
     while not shutdown:
         try:
-            with serial.Serial(port, 9600, timeout=1) as ser:
+            with serial.Serial(port, 9600, timeout=1, write_timeout=1) as ser:
                 arduino_ok = True
-                opened, warned = time.time(), False
+                opened, warned, asked = time.time(), False, False
                 print(f"[arduino] connected on {port}")
                 while not shutdown:
+                    if not asked and time.time() - opened > 0.5:
+                        asked = True
+                        try:
+                            ser.write(b"L")   # v3 sketch: learn what the sensors rest at, right now
+                        except serial.SerialException:
+                            pass              # older sketch, not listening. Harmless.
                     line = ser.readline().decode(errors="ignore").strip()
                     handle_serial_line(line)
                     if not warned and last_hb < opened and time.time() - opened > 5:
                         warned = True
-                        print("[arduino] port is open but the board is SILENT. The v2 "
+                        print("[arduino] port is open but the board is SILENT. The v3 "
                               "tap_buttons.ino is not running on it. Stop this script "
                               "(Ctrl+C), upload the sketch, then start this again.")
         except Exception as e:
@@ -694,7 +735,7 @@ async function tick(){
    +(s.active?'   recording '+s.rec_fps+' fps'+(s.rec_dropped?' ('+s.rec_dropped+' dropped)':''):'')
    +'   encode '+s.enc_ms+' ms';
  $('a').innerHTML=!s.arduino?'arduino: NOT CONNECTED (port busy or unplugged)':
-  !s.sketch?'arduino: connected but SILENT - upload the v2 tap_buttons.ino':
+  !s.sketch?'arduino: connected but SILENT - upload tap_buttons.ino (v3)':
   'arduino: OK &nbsp; '+pin('D2',s.pins[0])+' '+pin('D3',s.pins[1]);
  document.querySelectorAll('[data-e]').forEach(b=>b.classList.toggle('sel',String(s.exposure)===b.dataset.e));
  document.querySelectorAll('[data-p]').forEach(b=>b.classList.toggle('sel',s.preset===b.dataset.p));
@@ -734,6 +775,8 @@ def _tune_socket():
 
 @app.route("/stream")
 def stream():
+    if not camera_on:
+        return ("button-only mode: the browser owns the camera", 503)
     _tune_socket()
 
     def gen():
@@ -783,8 +826,11 @@ def status():
         out = {
             "version": VERSION,
             "boot": boot_id,
+            "camera": camera_on,
+            "tap_seq": tap_seq,
             "active": active,
             "mission": mission_dir.name if mission_dir else None,
+            "last_mission": last_mission,
             "elapsed": round(time.time() - mission_start, 1) if active else 0,
             "frames": frame_idx,
             "keyframes": keyframe_idx,
@@ -805,6 +851,20 @@ def status():
 def get_events():
     with lock:
         return jsonify(list(events))
+
+
+@app.route("/missions/<name>/video.mp4")
+def mission_video(name):
+    if not re.fullmatch(r"mission_\d{8}_\d{6}", name):      # only our own folder names
+        return ("no such mission", 404)
+    with lock:
+        recording_this = active and mission_dir is not None and mission_dir.name == name
+    path = out_root / name / "video.mp4"
+    if recording_this or not path.is_file():
+        return ("no finished video for that mission", 404)
+    resp = send_file(path.resolve(), mimetype="video/mp4", as_attachment=False, max_age=0)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.route("/toggle")
@@ -885,7 +945,9 @@ def lan_ip():
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--camera", default="1",
-                    help="camera number (0 = built-in, 1 = Logitech usually) or a video file for testing")
+                    help="camera number (0 = built-in, 1 = Logitech usually), a video file for testing, "
+                         "or 'none' = button-only mode (the dashboard's Computer webcam records; "
+                         "this script only forwards Arduino taps)")
     ap.add_argument("--rotate", default="none", choices=list(ROTATIONS))
     ap.add_argument("--width", type=int, default=1920)
     ap.add_argument("--height", type=int, default=1080)
@@ -916,10 +978,16 @@ if __name__ == "__main__":
     print(f"tap_stream {VERSION}")
     print(f"Recordings folder: {out_root}")
 
-    threads = [threading.Thread(target=f, args=(args,), daemon=True)
-               for f in (capture_loop, encoder_loop, recorder_loop)]
-    for t in threads:
-        t.start()
+    camera_on = str(args.camera).lower() != "none"
+    threads = []
+    if camera_on:
+        threads = [threading.Thread(target=f, args=(args,), daemon=True)
+                   for f in (capture_loop, encoder_loop, recorder_loop)]
+        for t in threads:
+            t.start()
+    else:
+        print("BUTTON-ONLY MODE: no camera opened here. In the dashboard choose 'Computer webcam', "
+              "start the camera, then tap the sensor to start / stop the dashboard's recording.")
 
     if serial is None:
         print("[arduino] pyserial not installed. Use the web buttons instead.")
@@ -939,4 +1007,5 @@ if __name__ == "__main__":
         app.run(host=args.host, port=args.port, threaded=True)
     finally:
         shutdown = True
-        threads[2].join(timeout=8)            # let the recorder finish the video file
+        if threads:
+            threads[2].join(timeout=8)        # let the recorder finish the video file
