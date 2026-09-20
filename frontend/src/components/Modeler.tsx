@@ -14,6 +14,8 @@ import { CameraFeed } from "./CameraFeed";
 import { ScalePanel } from "./ScalePanel";
 import { calibrationFactor } from "../services/calibration";
 import { SceneViewer } from "./SceneViewer";
+import { RoutePanel } from "./RoutePanel";
+import { useSceneRoute } from "../hooks/useSceneRoute";
 interface Props {
   camera: LiveCamera;
   active: boolean;
@@ -46,6 +48,7 @@ export function Modeler({ camera, active, scan, onChange, onBack }: Props) {
   const importInput = useRef<HTMLInputElement>(null);
   const importedNotice = useRef<string | undefined>(undefined);
   const scene = scan?.scene;
+  const route = useSceneRoute(scan, saving || !active);
   useEffect(() => {
     setReferencePoints([]);
     setPickingReference(false);
@@ -291,7 +294,14 @@ export function Modeler({ camera, active, scan, onChange, onBack }: Props) {
             selected={selected}
             onSelect={setSelected}
             onTransform={changeTransform}
-            tool={saving || pickingReference ? "orbit" : tool}
+            tool={saving || pickingReference || route.picking ? "orbit" : tool}
+            pickingRoute={!!route.picking && !saving}
+            onRoutePoint={route.pickPoint}
+            routePolyline={route.result?.polyline}
+            routePoints={[
+              route.result?.start.point ?? route.start?.point,
+              route.result?.end.point ?? route.end?.point,
+            ]}
             pickingReference={pickingReference && !saving}
             referencePoints={displayReference}
             onReferencePoint={pickReference}
@@ -304,6 +314,18 @@ export function Modeler({ camera, active, scan, onChange, onBack }: Props) {
         </div>
         {panel && (
           <aside className="editor-inspector" aria-label="Scene editor">
+            {scene && (
+              <RoutePanel
+                scene={scene}
+                route={route}
+                disabled={saving}
+                onPick={(which) => {
+                  setPickingReference(false);
+                  setTool("orbit");
+                  route.pick(which);
+                }}
+              />
+            )}
             <div
               className="editor-toolbar"
               role="toolbar"
@@ -387,6 +409,7 @@ export function Modeler({ camera, active, scan, onChange, onBack }: Props) {
                 picking={pickingReference}
                 busy={saving}
                 onPick={() => {
+                  route.cancelPick();
                   setReferencePoints([]);
                   setPickingReference(true);
                   setTool("orbit");

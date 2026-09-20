@@ -11,6 +11,7 @@ from starlette.exceptions import HTTPException
 
 from app.config import Settings, get_settings
 from app.routes.camera import router as camera_router
+from app.routes.routing import router as routing_router
 from app.routes.scans import router as scans_router
 from app.schemas import HealthResponse
 from app.services.blender import BlenderService
@@ -124,6 +125,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     api.include_router(scans_router)
+    api.include_router(routing_router)
     api.include_router(camera_router)
     return api
 

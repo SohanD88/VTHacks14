@@ -18,6 +18,10 @@ interface Props {
   pickingReference?: boolean;
   referencePoints?: Vector3[];
   onReferencePoint?(point: Vector3): void;
+  pickingRoute?: boolean;
+  onRoutePoint?(point: Vector3, objectId: string): void;
+  routePolyline?: Vector3[];
+  routePoints?: (Vector3 | undefined)[];
   layers?: Layers;
 }
 function isOpening(object: SceneObject) {
@@ -99,6 +103,9 @@ export function SceneViewer(props: Props) {
     props.structural,
     props.pickingReference,
     props.referencePoints,
+    props.pickingRoute,
+    props.routePolyline,
+    props.routePoints,
   ]);
   useEffect(() => {
     const container = host.current;
@@ -361,7 +368,56 @@ export function SceneViewer(props: Props) {
     );
     const reference = new THREE.Group();
     world.add(reference);
+    const routeOverlay = new THREE.Group();
+    world.add(routeOverlay);
     const sync = () => {
+      disposeTree(routeOverlay);
+      routeOverlay.clear();
+      const routePoints = latest.current.routePolyline || [];
+      renderer.domElement.dataset.routePoints = String(routePoints.length);
+      renderer.domElement.dataset.routeMarkers = String(
+        latest.current.routePoints?.filter(Boolean).length ?? 0,
+      );
+      if (routePoints.length > 1) {
+        const curve = new THREE.CurvePath<THREE.Vector3>();
+        for (let i = 1; i < routePoints.length; i++) {
+          curve.add(
+            new THREE.LineCurve3(
+              new THREE.Vector3(...routePoints[i - 1]),
+              new THREE.Vector3(...routePoints[i]),
+            ),
+          );
+        }
+        const routeMesh = new THREE.Mesh(
+          new THREE.TubeGeometry(
+            curve,
+            Math.min(20000, Math.max(32, routePoints.length * 8)),
+            0.022,
+            6,
+            false,
+          ),
+          new THREE.MeshBasicMaterial({
+            color: 0x74ff9a,
+            depthWrite: false,
+          }),
+        );
+        routeMesh.renderOrder = 12;
+        routeOverlay.add(routeMesh);
+      }
+      latest.current.routePoints?.forEach((point, i) => {
+        if (!point) return;
+        const marker = new THREE.Mesh(
+          new THREE.SphereGeometry(0.065, 16, 10),
+          new THREE.MeshBasicMaterial({
+            color: i === 0 ? 0x74ff9a : 0xffb454,
+            depthTest: false,
+            depthWrite: false,
+          }),
+        );
+        marker.position.set(...point);
+        marker.renderOrder = 13;
+        routeOverlay.add(marker);
+      });
       for (const child of [...reference.children]) {
         const mesh = child as THREE.Mesh;
         mesh.geometry?.dispose();
@@ -398,7 +454,10 @@ export function SceneViewer(props: Props) {
       hoverBox.visible = false;
       setHover("");
       renderer.domElement.dataset.hovered = "";
-      renderer.domElement.style.cursor = "grab";
+      renderer.domElement.style.cursor =
+        latest.current.pickingReference || latest.current.pickingRoute
+          ? "crosshair"
+          : "grab";
       for (const object of scene.objects) {
         const group = groups.get(object.id);
         if (!group) continue;
@@ -549,11 +608,12 @@ export function SceneViewer(props: Props) {
       setHover(scene.objects.find((o) => o.id === id)?.label || "");
       hoverBox.visible = !!id && id !== latest.current.selected;
       if (id) hoverBox.setFromObject(groups.get(id)!);
-      renderer.domElement.style.cursor = latest.current.pickingReference
-        ? "crosshair"
-        : id
-          ? "pointer"
-          : "grab";
+      renderer.domElement.style.cursor =
+        latest.current.pickingReference || latest.current.pickingRoute
+          ? "crosshair"
+          : id
+            ? "pointer"
+            : "grab";
       renderer.domElement.dataset.hovered = id || "";
     };
     const down = (event: PointerEvent) => {
@@ -568,7 +628,11 @@ export function SceneViewer(props: Props) {
       )
         return;
       if (mode === "preview") latest.current.onOpen?.();
-      else if (latest.current.pickingReference) {
+      else if (latest.current.pickingRoute) {
+        const intersection = hit(event);
+        if (intersection)
+          latest.current.onRoutePoint?.(intersection.point, intersection.id);
+      } else if (latest.current.pickingReference) {
         const intersection = hit(event);
         if (intersection) latest.current.onReferencePoint?.(intersection.point);
       } else latest.current.onSelect?.(hit(event)?.id);

@@ -6,6 +6,8 @@ import type {
   ScanResponse,
   ScaleCalibration,
   Scene,
+  RouteEndpoint,
+  SceneRoute,
 } from "../types";
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL || "/api").replace(
   /\/$/,
@@ -55,6 +57,18 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 }
 export const api = {
+  route: (
+    id: string,
+    revision: number,
+    start: RouteEndpoint,
+    end: RouteEndpoint,
+    signal?: AbortSignal,
+  ) =>
+    request<SceneRoute>(`/scans/${id}/routes`, {
+      method: "POST",
+      body: JSON.stringify({ revision, start, end }),
+      signal,
+    }),
   health: (signal?: AbortSignal) =>
     request<HealthResponse>("/health", { signal }),
   list: () => request<ScanResponse[]>("/scans"),
