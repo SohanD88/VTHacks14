@@ -12,6 +12,8 @@ interface Props {
   recent: ScanResponse[];
   busy: boolean;
   uploading: boolean;
+  loadingDemo: boolean;
+  onLoadDemo(): void;
   error: string;
   health: "checking" | "online" | "offline";
   blender?: {
@@ -27,6 +29,7 @@ interface Props {
     mode: Mode,
     source: "video" | "capture",
   ): void;
+  onInputChange(): void;
   onCancel(): void;
   onSelect(id: string): void;
   onDelete(id: string): void;
@@ -40,10 +43,13 @@ export function Dashboard({
   recent,
   busy,
   uploading,
+  loadingDemo,
+  onLoadDemo,
   error,
   health,
   blender,
   onScan,
+  onInputChange,
   onCancel,
   onSelect,
   onDelete,
@@ -67,6 +73,7 @@ export function Dashboard({
     setInputError("");
     setSource("capture");
     setCaptureDuration(undefined);
+    onInputChange();
     setFile(captured);
   });
   const usingGlasses = camera.source === "glasses";
@@ -110,6 +117,7 @@ export function Dashboard({
     }
     setSource("video");
     setCaptureDuration(undefined);
+    onInputChange();
     setFile(file);
   };
   const record = () => {
@@ -143,6 +151,7 @@ export function Dashboard({
           );
           return;
         }
+        onInputChange();
         setCaptureDuration(duration);
         setSource("capture");
         setFile(
@@ -158,6 +167,7 @@ export function Dashboard({
         setInputError("Camera recording failed. Stop and retry.");
         setBrowserRecording(false);
       };
+      onInputChange();
       setFile(undefined);
       setCaptureDuration(undefined);
       value.start(500);
@@ -364,7 +374,15 @@ export function Dashboard({
           >
             <div className="workspace-heading">
               <span className="eyebrow">Reconstruction workspace</span>
-              <span>Video to an editable 3D model</span>
+              <button
+                type="button"
+                className="prepared-demo-button"
+                disabled={busy || recording || health !== "online"}
+                onClick={onLoadDemo}
+                title="Open the saved IMG_1343 lounge model immediately. This is a prepared demo, not a new reconstruction."
+              >
+                {loadingDemo ? "Loading demo…" : "Load prepared demo ↗"}
+              </button>
             </div>
             <form
               className="scan-controls"
@@ -502,11 +520,19 @@ export function Dashboard({
               scene={scan?.scene}
               active={active}
               mode="preview"
+              emptyMessage={
+                busy
+                  ? "Your 3D model will appear when processing finishes."
+                  : file
+                    ? "Click Reconstruct video to generate your 3D model."
+                    : undefined
+              }
               onOpen={onOpen}
             />
             <button
               className="open-cue"
               aria-label="Open the full 3D modeling environment"
+              disabled={busy || (!!file && !scan?.scene)}
               onClick={onOpen}
             >
               Enter Sandbox ↗

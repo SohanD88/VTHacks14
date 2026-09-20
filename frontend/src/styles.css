@@ -3191,3 +3191,21 @@ legend {
 .view[aria-hidden="true"] {
   transform: none;
 }
+
+.console-grid .prepared-demo-button {
+  border: 1px solid var(--accent);
+  background: #06232a;
+  color: var(--accent);
+  border-radius: 5px;
+  padding: 7px 10px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.console-grid .prepared-demo-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.console-grid .workspace-heading {
+  flex-wrap: wrap;
+  gap: 8px;
+}

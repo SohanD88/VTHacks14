@@ -114,7 +114,10 @@ class ScanStore:
             try:
                 check()
                 scan.status = "processing"
-                update(stage="decoding", message="Reading video frames")
+                update(
+                    stage=getattr(service, "initial_stage", "decoding"),
+                    message=getattr(service, "initial_message", "Reading video frames"),
+                )
                 result = service.reconstruct(path, scan, self.directory(scan.id), update, check)
                 check()
                 self.atomic(

@@ -12,12 +12,22 @@ export function App() {
   const [scan, setScan] = useState<ScanResponse>();
   const [recent, setRecent] = useState<ScanResponse[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [loadingDemo, setLoadingDemo] = useState(false);
   const [error, setError] = useState("");
   const [health, setHealth] = useState<"checking" | "online" | "offline">(
     "checking",
   );
   const [blender, setBlender] = useState<HealthResponse["blender"]>();
   const upload = useRef<AbortController | null>(null);
+  const selectionVersion = useRef(0);
+  const clearPreview = useCallback(() => {
+    selectionVersion.current += 1;
+    setScan(undefined);
+    setError("");
+    const url = new URL(location.href);
+    url.searchParams.delete("scan");
+    history.replaceState(null, "", url);
+  }, []);
   const refresh = useCallback(async () => {
     try {
       setRecent(await api.list());
@@ -44,13 +54,15 @@ export function App() {
     const id = new URL(location.href).searchParams.get("scan");
     if (!id) return;
     let alive = true;
+    const version = selectionVersion.current;
     void api
       .getScan(encodeURIComponent(id))
       .then((result) => {
-        if (alive) setScan((current) => current ?? result);
+        if (alive && version === selectionVersion.current)
+          setScan((current) => current ?? result);
       })
       .catch((e: Error) => {
-        if (!alive) return;
+        if (!alive || version !== selectionVersion.current) return;
         setError(e.message);
         setView("dashboard");
         const url = new URL(location.href);
@@ -128,6 +140,7 @@ export function App() {
     source: "video" | "capture",
   ) => {
     if (uploading || running) return;
+    clearPreview();
     setUploading(true);
     setError("");
     const controller = new AbortController();
@@ -154,8 +167,10 @@ export function App() {
   };
   const select = async (id: string) => {
     setError("");
+    const version = ++selectionVersion.current;
     try {
-      setScan(await api.getScan(id));
+      const result = await api.getScan(id);
+      if (version === selectionVersion.current) setScan(result);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -168,24 +183,50 @@ export function App() {
       setError((e as Error).message);
     }
   };
+  const loadDemo = async () => {
+    if (uploading || running || loadingDemo) return;
+    setLoadingDemo(true);
+    setError("");
+    try {
+      const result = await api.loadDemo();
+      setScan(result);
+      setHealth("online");
+      await refresh();
+      navigate("modeler");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoadingDemo(false);
+    }
+  };
   const imported = (result: ScanResponse) => {
     setScan(result);
     setError("");
     void refresh();
   };
+  // A worker can attach scene data before its final stage. Only publish it
+  // after a successful completion, including when restoring an in-flight scan.
+  const sceneReady =
+    !uploading &&
+    !loadingDemo &&
+    (scan?.status === "completed" || scan?.status === "degraded");
+  const visibleScan = scan && !sceneReady ? { ...scan, scene: null } : scan;
   return (
     <main className={`app-shell ${view === "modeler" ? "is-modeling" : ""}`}>
       <Dashboard
         camera={camera}
         active={view === "dashboard"}
-        scan={scan}
+        scan={visibleScan}
         recent={recent}
         uploading={uploading}
-        busy={!!running || uploading}
+        busy={!!running || uploading || loadingDemo}
+        loadingDemo={loadingDemo}
+        onLoadDemo={() => void loadDemo()}
         error={error}
         health={health}
         blender={blender}
         onScan={run}
+        onInputChange={clearPreview}
         onCancel={() => void cancel()}
         onSelect={(id) => void select(id)}
         onDelete={async (id) => {
@@ -208,7 +249,7 @@ export function App() {
       <Modeler
         camera={camera}
         active={view === "modeler"}
-        scan={scan}
+        scan={visibleScan}
         onChange={imported}
         onBack={() => navigate("dashboard")}
       />

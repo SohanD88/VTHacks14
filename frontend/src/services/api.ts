@@ -57,6 +57,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 }
 export const api = {
+  loadDemo: () => request<ScanResponse>("/scans/demo", { method: "POST" }),
   route: (
     id: string,
     revision: number,

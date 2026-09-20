@@ -1,6 +1,7 @@
 """Validated upload, polling, artifacts, versioned editing and portable imports."""
 
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 from uuid import UUID
@@ -51,11 +52,6 @@ async def create_scan(
     is_model = suffix in {".blend", ".glb", ".json"}
     if is_model:
         mode = "blender"
-    if mode == "blender":
-        try:
-            request.app.state.blender.executable()
-        except ProcessingError as exc:
-            raise HTTPException(503, str(exc)) from exc
     if suffix not in EXTENSIONS and not is_model:
         raise HTTPException(
             415, "Unsupported format. Use MP4, MOV, WebM, AVI, MKV, .blend, .glb or room-plan JSON."
@@ -68,6 +64,7 @@ async def create_scan(
     path = store.directory(scan.id) / f"input{suffix}"
     try:
         size = 0
+        digest = hashlib.sha256()
         with path.open("wb") as output:
             while chunk := await file.read(1024 * 1024):
                 size += len(chunk)
@@ -80,6 +77,7 @@ async def create_scan(
                         ),
                     )
                 output.write(chunk)
+                digest.update(chunk)
         if not size:
             raise HTTPException(422, "Upload is empty. Select a nonempty file.")
         info = (
@@ -94,9 +92,24 @@ async def create_scan(
         scan.source = "import" if is_model else source
         scan.video = info
         scan.stage = "queued"
+        from app.services.prepared_demo import PreparedVideoService, matches_demo
+
+        prepared = not is_model and source == "video" and matches_demo(digest.hexdigest())
+        if mode == "blender" and not prepared:
+            try:
+                request.app.state.blender.executable()
+            except ProcessingError as exc:
+                raise HTTPException(503, str(exc)) from exc
         provider = (
-            request.app.state.blender if mode == "blender" else request.app.state.reconstruction
+            PreparedVideoService()
+            if prepared
+            else request.app.state.blender
+            if mode == "blender"
+            else request.app.state.reconstruction
         )
+        if prepared:
+            scan.message = "Demo video recognized · queued for prepared-model loading"
+            scan.stage = "demo_queued"
         store.submit(scan, path, provider)
         return scan.model_copy(deep=True)
     except (ProcessingError, HTTPException) as exc:
@@ -116,6 +129,16 @@ async def create_scan(
         raise
     finally:
         await file.close()
+
+
+@router.post("/demo", response_model=ScanResponse)
+def prepared_demo(request: Request):
+    from app.services.prepared_demo import load_prepared_demo
+
+    try:
+        return load_prepared_demo(request.app.state.scan_store)
+    except ProcessingError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.post("/import", status_code=201, response_model=ScanResponse)

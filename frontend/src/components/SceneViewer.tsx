@@ -10,6 +10,7 @@ interface Props {
   active: boolean;
   mode: "preview" | "modeler";
   onOpen?(): void;
+  emptyMessage?: string;
   selected?: string;
   onSelect?(id?: string): void;
   onTransform?(id: string, transform: Transform): void;
@@ -710,7 +711,8 @@ export function SceneViewer(props: Props) {
           <p>
             {error
               ? "Enable WebGL to view geometry. Object details, editing fields, and JSON export remain available."
-              : "Upload a room video to reconstruct the observed space."}
+              : props.emptyMessage ||
+                "Upload a room video to reconstruct the observed space."}
           </p>
         </div>
       )}
