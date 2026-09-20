@@ -7,6 +7,10 @@ tap again to stop recording. Live viewing and detection continue between mission
   Touch sensor 1 (socket D2, sends TAP1) = start / stop the mission
   Touch sensor 2 (socket D3, sends TAP2) = drop a "hazard" marker
 
+v5.2: the dashboard can follow and control recording. /status now reports the last
+  finished mission, and GET /missions/<name>/video.mp4 serves its video, so the
+  dashboard loads the recording by itself when you tap to stop.
+
 v5.1: works with tap_buttons.ino v3. That sketch learns whether each sensor or
   button rests LOW or HIGH, so a part that rests HIGH (D2 stuck at 1 with the
   old sketch) now starts and stops recording the moment it is pressed.
@@ -69,6 +73,8 @@ FOR THE UI TEAM  (all endpoints allow cross-origin requests)
                     "arduino", "sketch", "pins", "boot", "version",
                     "cam_fps", "enc_fps", "sent_fps", "rec_fps", "rec_dropped", ...}
   GET /events   -> [{"t": 8.2, "keyframe": 16, "label": "hazard", ...}, ...]
+  GET /missions/<name>/video.mp4   -> the saved video of a finished mission
+                   (/status "last_mission" tells you the newest finished one)
   GET /toggle   -> start or stop (same as tapping sensor 1)
   GET /start    /stop
   GET /mark?label=hazard        -> drop a marker from the UI
@@ -82,6 +88,7 @@ import csv
 import logging
 import os
 import queue
+import re
 import socket
 import threading
 import time
@@ -90,7 +97,7 @@ from pathlib import Path
 
 os.environ.setdefault("OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS", "0")   # avoids a very slow camera open with --backend msmf
 import cv2
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_file
 
 try:
     import serial
@@ -98,7 +105,7 @@ try:
 except ImportError:
     serial = None
 
-VERSION = "v5.1"
+VERSION = "v5.2"
 
 ROTATIONS = {
     "none": None,
@@ -131,6 +138,7 @@ tap_lockout = 1.0
 
 out_root = Path("recordings")
 mission_dir = None
+last_mission = None     # newest FINISHED mission: {"name", "video", "seconds", "keyframes"}
 mission_start = 0.0
 frame_idx = 0
 keyframe_idx = 0
@@ -542,7 +550,7 @@ def recorder_loop(args):
         stats["rec_ms"] = round(0.9 * stats["rec_ms"] + 0.1 * ms, 1) if stats["rec_ms"] else round(ms, 1)
 
     def end():
-        global active
+        global active, last_mission
         with lock:
             active = False                    # capture thread stops feeding the queue
         while True:                           # write whatever is still waiting
@@ -558,6 +566,16 @@ def recorder_loop(args):
         if st["kf_log"] is not None:
             st["kf_log"].close()
             st["kf_log"] = None
+        video = mission_dir / "video.mp4"
+        if video.exists() and video.stat().st_size > 0:
+            with lock:                        # the file is complete now, safe to hand out
+                last_mission = {
+                    "name": mission_dir.name,
+                    "video": f"/missions/{mission_dir.name}/video.mp4",
+                    "seconds": round(time.time() - mission_start, 1),
+                    "keyframes": keyframe_idx,
+                    "bytes": video.stat().st_size,
+                }
         dropped = stats["rec_dropped"]
         print(f"[saved] {mission_dir.resolve()}  ({keyframe_idx} keyframes, {len(events)} events"
               f"{', ' + str(dropped) + ' frames dropped' if dropped else ''})")
@@ -797,6 +815,7 @@ def status():
             "boot": boot_id,
             "active": active,
             "mission": mission_dir.name if mission_dir else None,
+            "last_mission": last_mission,
             "elapsed": round(time.time() - mission_start, 1) if active else 0,
             "frames": frame_idx,
             "keyframes": keyframe_idx,
@@ -817,6 +836,20 @@ def status():
 def get_events():
     with lock:
         return jsonify(list(events))
+
+
+@app.route("/missions/<name>/video.mp4")
+def mission_video(name):
+    if not re.fullmatch(r"mission_\d{8}_\d{6}", name):      # only our own folder names
+        return ("no such mission", 404)
+    with lock:
+        recording_this = active and mission_dir is not None and mission_dir.name == name
+    path = out_root / name / "video.mp4"
+    if recording_this or not path.is_file():
+        return ("no finished video for that mission", 404)
+    resp = send_file(path.resolve(), mimetype="video/mp4", as_attachment=False, max_age=0)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.route("/toggle")

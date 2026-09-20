@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Mode, ScanResponse } from "../types";
 import type { LiveCamera } from "../hooks/useLiveCamera";
+import { useGlassesRecorder } from "../hooks/useGlassesRecorder";
 import { CameraFeed } from "./CameraFeed";
 import { API_BASE } from "../services/api";
 import { SceneViewer } from "./SceneViewer";
@@ -47,9 +48,19 @@ export function Dashboard({
   const [mode, setMode] = useState<Mode>("balanced");
   const [source, setSource] = useState<"video" | "capture">("video");
   const [inputError, setInputError] = useState("");
-  const [recording, setRecording] = useState(false);
+  const [browserRecording, setRecording] = useState(false);
   const [previewMeta, setPreviewMeta] = useState("");
   const recorder = useRef<MediaRecorder | null>(null);
+  // Glasses rig: its Arduino touch sensor (or the buttons below) starts and stops
+  // recording; the finished video arrives here as the capture to reconstruct.
+  const glassesRec = useGlassesRecorder(camera, (captured) => {
+    setInputError("");
+    setSource("capture");
+    setFile(captured);
+  });
+  const usingGlasses = camera.source === "glasses";
+  const recording =
+    browserRecording || (usingGlasses && glassesRec.recording);
   useEffect(() => {
     if (!file) {
       setUrl("");
@@ -121,7 +132,8 @@ export function Dashboard({
       setInputError((e as Error).message);
     }
   };
-  const failure = inputError || error || scan?.error;
+  const failure =
+    inputError || (usingGlasses ? glassesRec.error : "") || error || scan?.error;
   const stats = scan?.stats;
   const activeSource =
     scan?.scene && scan.source !== "import" && scan.video
@@ -256,7 +268,9 @@ export function Dashboard({
           (uploading
             ? "Uploading selected video…"
             : recording
-              ? "Recording camera…"
+              ? usingGlasses
+                ? `Recording on the glasses · ${Math.round(glassesRec.elapsed)} s`
+                : "Recording camera…"
               : scan
                 ? `${scan.status} · ${scan.stage.replaceAll("_", " ")} · ${scan.message}`
                 : file
@@ -336,20 +350,30 @@ export function Dashboard({
             <CameraFeed camera={camera} visible={active} />
             {camera.source === "glasses" && (
               <p className="input-meta">
-                Record with the glasses controls, then select the saved video
-                above to reconstruct it.
+                {glassesRec.message ||
+                  (glassesRec.available
+                    ? "Tap the touch sensor on the glasses, or use the buttons below, to start and stop recording. The saved video loads here when recording stops."
+                    : "Record with the glasses controls, then select the saved video above to reconstruct it.")}
               </p>
             )}
             <div className="capture-actions">
               <button
-                disabled={!camera.stream || recording || busy}
-                onClick={record}
+                disabled={
+                  (usingGlasses ? !glassesRec.available : !camera.stream) ||
+                  recording ||
+                  busy
+                }
+                onClick={usingGlasses ? glassesRec.start : record}
               >
                 Start recording
               </button>
               <button
                 disabled={!recording}
-                onClick={() => recorder.current?.stop()}
+                onClick={
+                  usingGlasses
+                    ? glassesRec.stop
+                    : () => recorder.current?.stop()
+                }
               >
                 Stop recording
               </button>
