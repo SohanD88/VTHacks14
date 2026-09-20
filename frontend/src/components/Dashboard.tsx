@@ -53,7 +53,7 @@ export function Dashboard({
   const [file, setFile] = useState<File>();
   const [url, setUrl] = useState("");
   const [name, setName] = useState("Room reconstruction");
-  const [mode, setMode] = useState<Mode>("blender");
+  const mode: Mode = "blender";
   const [source, setSource] = useState<"video" | "capture">("video");
   const [inputError, setInputError] = useState("");
   const [browserRecording, setBrowserRecording] = useState(false);
@@ -109,7 +109,6 @@ export function Dashboard({
     }
     setSource("video");
     setCaptureDuration(undefined);
-    if (/\.(blend|glb|json)$/i.test(file.name)) setMode("blender");
     setFile(file);
   };
   const record = () => {
@@ -187,7 +186,7 @@ export function Dashboard({
   return (
     <section
       className={`view dashboard-view ${active ? "is-active" : ""}`}
-      aria-label="Spatial intelligence dashboard"
+      aria-label="Spare dashboard"
       aria-hidden={!active}
       inert={!active}
     >
@@ -198,9 +197,11 @@ export function Dashboard({
             <span />
             <span />
           </div>
-          <div>
-            <p className="eyebrow">Field system / Video reconstruction</p>
-            <h1>Spatial Intelligence</h1>
+          <div className="brand-wordmark">
+            <h1>Spare</h1>
+            <p className="brand-motto">
+              Saves Lives. Saves <span>Us</span>.
+            </p>
           </div>
         </div>
         <button
@@ -215,136 +216,126 @@ export function Dashboard({
               : "Connecting"}
         </button>
       </header>
-      <form
-        className="scan-controls"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (file && !busy) onScan(file, name, mode, source);
-        }}
-        aria-label="Reconstruct a video"
-      >
-        <label>
-          Scan name
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            maxLength={80}
-            disabled={busy}
-          />
-        </label>
-        <label>
-          Video or Blender model
-          <input
-            type="file"
-            accept="video/*,.mkv,.avi,.blend,.glb,.json"
-            onChange={(e) => choose(e.target.files?.[0])}
-            disabled={busy || recording}
-          />
-        </label>
-        <label>
-          Quality
-          <select
-            value={mode}
-            onChange={(e) => setMode(e.target.value as Mode)}
-            disabled={busy}
-          >
-            <option value="blender">Blender · furnished room model</option>
-            <option value="quick">Quick preview · 12 keyframes</option>
-            <option value="balanced">Balanced · 28–48 keyframes</option>
-            <option value="high">High quality · 56 keyframes</option>
-          </select>
-        </label>
-        <button
-          className="primary-action scan-button"
-          disabled={!file || busy || recording || !name.trim()}
-        >
-          {uploading
-            ? "Uploading…"
-            : busy
-              ? "Processing…"
-              : failure
-                ? "Retry reconstruction"
-                : file && /\.(blend|glb|json)$/i.test(file.name)
-                  ? "Open Blender model"
-                  : "Reconstruct video"}
-        </button>
-        {busy && (
-          <button type="button" onClick={onCancel}>
-            Cancel processing
-          </button>
-        )}
-      </form>
-      {mode === "blender" && blender && (
-        <p className="muted" role="status">
-          {!blender.available
-            ? "Blender is not configured on this server."
-            : !blender.video_configured
-              ? "Blender model import is ready. New video generation needs a vision API key and model configured on the server."
-              : `${blender.model || "Vision model"} → Blender is ready. Selected video frames are sent to ${blender.provider === "gemini" ? "Google Gemini" : "the configured vision service"}.`}
-        </p>
-      )}
-      <div className="recent-controls">
-        <label>
-          Recent scans
-          <select
-            value={scan?.id || ""}
-            onChange={(e) => {
-              setFile(undefined);
-              onSelect(e.target.value);
-            }}
-            disabled={busy}
-          >
-            <option value="" disabled>
-              Select a saved reconstruction
-            </option>
-            {recent.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} · {s.status}
-              </option>
-            ))}
-          </select>
-        </label>
-        {scan && !busy && (
-          <button
-            onClick={() => {
-              if (confirm("Delete this saved scan and its diagnostic files?"))
-                onDelete(scan.id);
-            }}
-          >
-            Delete saved scan
-          </button>
-        )}
-      </div>
-      <div
-        className={`scan-feedback ${failure ? "has-error" : ""}`}
-        role={failure ? "alert" : "status"}
-        aria-live="polite"
-      >
-        {failure ||
-          (uploading
-            ? "Uploading selected file…"
-            : recording
-              ? usingGlasses
-                ? `Recording on the glasses · ${Math.round(glassesRec.elapsed)} s`
-                : "Recording camera…"
-              : scan
-                ? `${scan.status} · ${scan.stage.replaceAll("_", " ")} · ${scan.message}`
-                : file
-                  ? `${source === "capture" ? "Capture complete" : isModelFile ? "Blender model import" : "Uploaded-video mode"} · ready to process`
-                  : "No input selected. Upload a video, Blender model, or record your camera.")}
-        {scan && <span> Scan {scan.id.slice(0, 8)}</span>}
-      </div>
-      {scan && (
-        <div className="job-progress">
-          <progress value={scan.progress} max={100} />
-          <span>
-            {Math.round(scan.progress)}% · {scan.processing_mode} ·{" "}
-            {stats?.execution_device}
-          </span>
+      <section className="scan-workspace" aria-label="Reconstruction controls">
+        <div className="workspace-heading">
+          <span className="eyebrow">Reconstruction workspace</span>
+          <span>Video to an editable 3D model</span>
         </div>
-      )}
-      <div className="dashboard-grid">
+        <form
+          className="scan-controls"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (file && !busy) onScan(file, name, mode, source);
+          }}
+          aria-label="Reconstruct a video"
+        >
+          <label>
+            Scan name
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              maxLength={80}
+              disabled={busy}
+            />
+          </label>
+          <label>
+            Video or Blender model
+            <input
+              type="file"
+              accept="video/*,.mkv,.avi,.blend,.glb,.json"
+              onChange={(e) => choose(e.target.files?.[0])}
+              disabled={busy || recording}
+            />
+          </label>
+          <label>
+            Reconstruction
+            <select defaultValue="blender" disabled={busy}>
+              <option value="blender">Blender · furnished room model</option>
+            </select>
+          </label>
+          <button
+            className="primary-action scan-button"
+            disabled={!file || busy || recording || !name.trim()}
+          >
+            {uploading
+              ? "Uploading…"
+              : busy
+                ? "Processing…"
+                : failure
+                  ? "Retry reconstruction"
+                  : file && /\.(blend|glb|json)$/i.test(file.name)
+                    ? "Open Blender model"
+                    : "Reconstruct video"}
+          </button>
+          {busy && (
+            <button type="button" onClick={onCancel}>
+              Cancel processing
+            </button>
+          )}
+        </form>
+        <div className="recent-controls">
+          <label>
+            Recent scans
+            <select
+              value={scan?.id || ""}
+              onChange={(e) => {
+                setFile(undefined);
+                onSelect(e.target.value);
+              }}
+              disabled={busy}
+            >
+              <option value="" disabled>
+                Select a saved reconstruction
+              </option>
+              {recent.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} · {s.status}
+                </option>
+              ))}
+            </select>
+          </label>
+          {scan && !busy && (
+            <button
+              onClick={() => {
+                if (confirm("Delete this saved scan and its diagnostic files?"))
+                  onDelete(scan.id);
+              }}
+            >
+              Delete saved scan
+            </button>
+          )}
+        </div>
+        <div
+          className={`scan-feedback ${failure ? "has-error" : ""}`}
+          role={failure ? "alert" : "status"}
+          aria-live="polite"
+        >
+          {failure ||
+            (uploading
+              ? "Uploading selected file…"
+              : recording
+                ? usingGlasses
+                  ? `Recording on the glasses · ${Math.round(glassesRec.elapsed)} s`
+                  : "Recording camera…"
+                : scan
+                  ? `${scan.status} · ${scan.stage.replaceAll("_", " ")} · ${scan.message}`
+                  : file
+                    ? `${source === "capture" ? "Capture complete" : isModelFile ? "Blender model import" : "Uploaded-video mode"} · ready to process`
+                    : "No input selected. Upload a video, Blender model, or record your camera.")}
+          {scan && <span> Scan {scan.id.slice(0, 8)}</span>}
+        </div>
+        {scan && (
+          <div className="job-progress">
+            <progress value={scan.progress} max={100} />
+            <span>
+              {Math.round(scan.progress)}%
+              {scan.stage === "finished" ? " · Ready" : ""}
+            </span>
+          </div>
+        )}
+      </section>
+      <div className="dashboard-grid dashboard-media">
         <section className="panel camera-panel">
           <div className="panel-heading">
             <div>
@@ -401,14 +392,17 @@ export function Dashboard({
             </>
           )}
           {scan?.video && (
-            <p className="input-meta">
-              Active scan: {scan.video.filename} · {scan.video.width} ×{" "}
-              {scan.video.height} · {scan.video.codec} ·{" "}
-              {scan.video.fps.toFixed(1)} fps · {scan.video.duration.toFixed(1)}
-              s
-            </p>
+            <details className="source-details">
+              <summary>Video details</summary>
+              <p className="input-meta">
+                Active scan: {scan.video.filename} · {scan.video.width} ×{" "}
+                {scan.video.height} · {scan.video.codec} ·{" "}
+                {scan.video.fps.toFixed(1)} fps ·{" "}
+                {scan.video.duration.toFixed(1)}s
+              </p>
+            </details>
           )}
-          <details open={!file}>
+          <details open={!file && !activeSource}>
             <summary>Live camera capture</summary>
             <CameraFeed camera={camera} visible={active} />
             {camera.source === "glasses" && (
@@ -483,105 +477,130 @@ export function Dashboard({
             Enter Sandbox ↗
           </button>
         </section>
-        <section
-          className="panel detections-panel"
-          data-testid="scan-detections"
-        >
-          <div className="panel-heading">
-            <h2>Reconstructed elements</h2>
-            <span>{stats?.entrances ?? 0} opening candidates</span>
-          </div>
-          <div className="detection-list">
-            {scan?.detections.length ? (
-              scan.detections.map((d) => (
-                <div key={d.kind}>
-                  <span className="object-icon" />
-                  <strong className="capitalize">{d.kind}</strong>
-                  <em>{d.count}</em>
-                  <div />
-                  <b>{Math.round(d.confidence * 100)}%</b>
-                </div>
-              ))
-            ) : (
-              <p className="empty-copy">
-                Scene labels appear after reconstruction.
-              </p>
-            )}
-          </div>
-          {
-            <div data-testid="live-detections" className="live-separate">
-              Live preview only:{" "}
-              {!camera.active
-                ? "Camera offline"
-                : camera.sourceError ||
-                  (!camera.detections.length
-                    ? camera.updatedAt
-                      ? "No supported objects in this frame."
-                      : "Waiting for live detection results…"
-                    : "")}
-              {camera.detections.map((d, i) => (
-                <span key={i}>
-                  {d.label} {Math.round(d.confidence * 100)}%{" "}
-                </span>
-              ))}
-            </div>
-          }
-        </section>
-        <section className="panel spatial-panel">
-          <div className="panel-heading">
-            <h2>Processing measurements</h2>
-          </div>
-          <div className="model-stats">
-            {[
-              ["Objects", stats?.objects],
-              ["Decoded frames", stats?.frames],
-              [
-                "Accepted / rejected",
-                stats ? `${stats.accepted} / ${stats.rejected}` : undefined,
-              ],
-              ["Keyframes", stats?.keyframes],
-              [
-                "Camera poses",
-                stats ? `${stats.poses} / ${stats.keyframes}` : undefined,
-              ],
-              ["Tracking failures", stats?.pose_failures],
-              [
-                "Duration",
-                scan ? `${(scan.processing_ms / 1000).toFixed(1)}s` : undefined,
-              ],
-              [
-                "Artifact",
-                stats
-                  ? `${(stats.artifact_bytes / 1024 ** 2).toFixed(2)} MB`
-                  : undefined,
-              ],
-            ].map(([label, value]) => (
-              <article key={label}>
-                <span>{label}</span>
-                <strong
-                  data-testid={label === "Objects" ? "object-count" : undefined}
-                >
-                  {value ?? "—"}
-                </strong>
-              </article>
-            ))}
-          </div>
-          <p className="input-meta">
-            {stats?.coverage_description ||
-              "Coverage is unknown until observations are processed."}
-          </p>
-        </section>
       </div>
-      {scan?.warnings.length ? (
-        <aside className="quality-notes">
-          <h2>Reconstruction notes</h2>
-          <ul>
-            {scan.warnings.map((w) => (
-              <li key={w}>{w}</li>
-            ))}
-          </ul>
-        </aside>
-      ) : null}
+      <details className="scan-details">
+        <summary>
+          <span>Scan details</span>
+          <span className="details-description">
+            Elements, measurements & reconstruction notes
+          </span>
+        </summary>
+        <div className="scan-details-content">
+          {mode === "blender" && blender && (
+            <p className="input-meta">
+              {!blender.available
+                ? "Blender is not configured on this server."
+                : !blender.video_configured
+                  ? "Blender model import is ready. New video generation needs a vision API key and model configured on the server."
+                  : `${blender.model || "Vision model"} → Blender is ready. Selected video frames are sent to ${blender.provider === "gemini" ? "Google Gemini" : "the configured vision service"}.`}
+            </p>
+          )}
+          <div className="scan-details-grid">
+            <section
+              className="panel detections-panel"
+              data-testid="scan-detections"
+            >
+              <div className="panel-heading">
+                <h2>Reconstructed elements</h2>
+                <span>{stats?.entrances ?? 0} opening candidates</span>
+              </div>
+              <div className="detection-list">
+                {scan?.detections.length ? (
+                  scan.detections.map((d) => (
+                    <div key={d.kind}>
+                      <span className="object-icon" />
+                      <strong className="capitalize">{d.kind}</strong>
+                      <em>{d.count}</em>
+                      <div />
+                      <b>{Math.round(d.confidence * 100)}%</b>
+                    </div>
+                  ))
+                ) : (
+                  <p className="empty-copy">
+                    Scene labels appear after reconstruction.
+                  </p>
+                )}
+              </div>
+              {
+                <div data-testid="live-detections" className="live-separate">
+                  Live preview only:{" "}
+                  {!camera.active
+                    ? "Camera offline"
+                    : camera.sourceError ||
+                      (!camera.detections.length
+                        ? camera.updatedAt
+                          ? "No supported objects in this frame."
+                          : "Waiting for live detection results…"
+                        : "")}
+                  {camera.detections.map((d, i) => (
+                    <span key={i}>
+                      {d.label} {Math.round(d.confidence * 100)}%{" "}
+                    </span>
+                  ))}
+                </div>
+              }
+            </section>
+            <section className="panel spatial-panel">
+              <div className="panel-heading">
+                <h2>Processing measurements</h2>
+              </div>
+              <div className="model-stats">
+                {[
+                  ["Objects", stats?.objects],
+                  ["Decoded frames", stats?.frames],
+                  [
+                    "Accepted / rejected",
+                    stats ? `${stats.accepted} / ${stats.rejected}` : undefined,
+                  ],
+                  ["Keyframes", stats?.keyframes],
+                  [
+                    "Camera poses",
+                    stats ? `${stats.poses} / ${stats.keyframes}` : undefined,
+                  ],
+                  ["Tracking failures", stats?.pose_failures],
+                  [
+                    "Duration",
+                    scan
+                      ? `${(scan.processing_ms / 1000).toFixed(1)}s`
+                      : undefined,
+                  ],
+                  [
+                    "Artifact",
+                    stats
+                      ? `${(stats.artifact_bytes / 1024 ** 2).toFixed(2)} MB`
+                      : undefined,
+                  ],
+                ].map(([label, value]) => (
+                  <article key={label}>
+                    <span>{label}</span>
+                    <strong
+                      data-testid={
+                        label === "Objects" ? "object-count" : undefined
+                      }
+                    >
+                      {value ?? "—"}
+                    </strong>
+                  </article>
+                ))}
+              </div>
+              <p className="input-meta">
+                {stats?.coverage_description ||
+                  "Coverage is unknown until observations are processed."}
+              </p>
+            </section>
+          </div>
+          {scan?.warnings.length ? (
+            <aside className="quality-notes">
+              <h2>Reconstruction notes</h2>
+              <ul>
+                {scan.warnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            </aside>
+          ) : null}
+        </div>
+      </details>
     </section>
   );
 }
