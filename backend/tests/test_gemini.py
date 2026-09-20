@@ -204,3 +204,87 @@ def test_selected_frames_never_seek_and_keep_valid_fallback(
     report = json.loads((tmp_path / "frame-selection.json").read_text())
     assert report["fallback_frames"] == ([0, 2] if second_pass_fails else [])
     assert all(cv2.imread(str(tmp_path / f"frame-{i:06}.jpg")) is not None for i in selected)
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_real_sdk_request_lifetime_and_cancellation(monkeypatch, cancel):
+    """Exercise the installed SDK; mock only HTTP, not generate_content."""
+    import asyncio
+    import gc
+
+    import httpx
+
+    closed = []
+    entered = []
+    finished = []
+
+    async def respond(request):
+        gc.collect()
+        entered.append(True)
+        assert request.headers["x-goog-api-key"] == "test-key"
+        assert "gemini-3.6-flash:generateContent" in str(request.url)
+        payload = json.loads(request.content)
+        assert payload["toolConfig"]["functionCallingConfig"]["mode"] == "ANY"
+        try:
+            if cancel:
+                await asyncio.sleep(30)
+            return httpx.Response(
+                200,
+                json={
+                    "candidates": [
+                        {
+                            "content": {
+                                "role": "model",
+                                "parts": [
+                                    {
+                                        "functionCall": {
+                                            "name": gemini.FUNCTION,
+                                            "args": {
+                                                "code": "import bpy",
+                                                "summary": "Probe",
+                                                "assumptions": [],
+                                            },
+                                        }
+                                    }
+                                ],
+                            }
+                        }
+                    ]
+                },
+            )
+        finally:
+            finished.append(True)
+
+    class Transport(httpx.MockTransport):
+        async def aclose(self):
+            closed.append(True)
+            await super().aclose()
+
+    real_client = gemini.genai.Client
+
+    def client(**kwargs):
+        kwargs["http_options"].async_client_args = {"transport": Transport(respond)}
+        return real_client(**kwargs)
+
+    monkeypatch.setattr(gemini.genai, "Client", client)
+
+    def check():
+        if cancel and entered:
+            raise Cancelled("cancelled")
+
+    async def run():
+        try:
+            result = await gemini.request_scene(
+                "test-key", settings(), [gemini.types.Part.from_text(text="Probe")], check
+            )
+            assert not cancel
+            assert result.function_calls[0].name == gemini.FUNCTION
+        finally:
+            assert finished, "The HTTP request must finish or be cancelled before returning"
+
+    if cancel:
+        with pytest.raises(Cancelled):
+            asyncio.run(run())
+    else:
+        asyncio.run(run())
+    assert entered and closed

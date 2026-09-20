@@ -253,3 +253,12 @@ Use the camera index and rotation appropriate for your hardware (`--camera 0` is
 In the dashboard camera panel, select **Glasses camera**. The address defaults to `http://127.0.0.1:8080` and is remembered in this browser. Click **Start camera**. The MJPEG `/stream` supplies the preview; `/frame.jpg` supplies up to about three sampled frames per second to the existing RF-DETR WebSocket. Results and overlays appear in both dashboard and modeling views. **Rotate 90°** turns the selected live preview and detector frames clockwise in quarter turns, keeping boxes aligned; its angle carries over when switching sources or views. The script's `--rotate` option rotates its own stream and saved recordings before they reach the dashboard. Switching back to **Computer webcam** stops glasses polling and starts browser capture. The glasses script continues running until stopped in its terminal. If the stream or detector disconnects, use **Retry detection** after checking the relevant process.
 
 The glasses script requires local camera access and its own process. The live preview provides 2D detection. To reconstruct glasses footage, record it with the glasses controls and select the saved video in the dashboard’s Video file input. Browser Start recording captures the Computer webcam source.
+
+
+### Isolated browser sanity checks
+
+Run `cd frontend && PLAYWRIGHT_CHANNEL=chrome npm run test:e2e` to use installed
+Chrome, or install the bundled browser once with `npx playwright install chromium`
+and run `npm run test:e2e`. Tests start dedicated servers on ports 15174 and 18114,
+use temporary scan storage, and remove that storage afterward. Keep those ports
+free; tests deliberately do not reuse a running developer server or its saved scans.

@@ -40,7 +40,7 @@ so it loads that file. Restart after changing settings.
 ```dotenv
 SPATIAL_BLENDER_PROVIDER=gemini
 SPATIAL_BLENDER_PLANNER_MODEL=gemini-3.6-flash
-SPATIAL_GEMINI_KEYCHAIN_SERVICE=vt-hacks-gemini-api
+SPATIAL_GEMINI_KEYCHAIN_SERVICE=vthacks14-main-gemini-api
 SPATIAL_BLENDER_TRANSPORT=mcp
 SPATIAL_BLENDER_BINARY=/Applications/Blender.app/Contents/MacOS/Blender
 SPATIAL_BLENDER_MCP_COMMAND=/absolute/path/to/blender-mcp
