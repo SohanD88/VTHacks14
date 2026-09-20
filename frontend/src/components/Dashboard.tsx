@@ -300,51 +300,61 @@ export function Dashboard({
                 {camera.active ? "Live" : "Standby"}
               </span>
             </div>
-            <CameraFeed camera={camera} visible={active} />
-            {camera.source === "glasses" && (
-              <p className="input-meta">
-                {glassesRec.message ||
-                  (glassesRec.available
-                    ? "Tap the touch sensor on the glasses, or use the buttons below, to start and stop recording. The saved video loads here when recording stops."
-                    : "Record with the glasses controls, then select the saved video above to reconstruct it.")}
-              </p>
-            )}
-            {!usingGlasses && tapButton && (
-              <p className="input-meta">
-                Arduino button connected. Tap it to start and stop recording.
-              </p>
-            )}
-            <div className="capture-actions">
-              <button
-                disabled={
-                  (usingGlasses ? !glassesRec.available : !camera.stream) ||
-                  recording ||
-                  busy
-                }
-                onClick={usingGlasses ? glassesRec.start : record}
-              >
-                Start recording
-              </button>
-              <button
-                disabled={!recording}
-                onClick={
-                  usingGlasses
-                    ? glassesRec.stop
-                    : () => recorder.current?.stop()
-                }
-              >
-                Stop recording
-              </button>
-              <button
-                disabled={!file || busy || recording}
-                onClick={() => {
-                  setFile(undefined);
-                  setInputError("");
-                }}
-              >
-                Clear input
-              </button>
-            </div>
+            <CameraFeed
+              camera={camera}
+              visible={active}
+              controls={
+                <>
+                  {camera.source === "glasses" && (
+                    <p className="input-meta">
+                      {glassesRec.message ||
+                        (glassesRec.available
+                          ? "Tap the touch sensor on the glasses, or use the recording buttons, to start and stop recording. The saved video loads here when recording stops."
+                          : "Record with the glasses controls, then select the saved video above to reconstruct it.")}
+                    </p>
+                  )}
+                  {!usingGlasses && tapButton && (
+                    <p className="input-meta">
+                      Arduino button connected. Tap it to start and stop
+                      recording.
+                    </p>
+                  )}
+                  <div className="capture-actions">
+                    <button
+                      disabled={
+                        (usingGlasses
+                          ? !glassesRec.available
+                          : !camera.stream) ||
+                        recording ||
+                        busy
+                      }
+                      onClick={usingGlasses ? glassesRec.start : record}
+                    >
+                      Start recording
+                    </button>
+                    <button
+                      disabled={!recording}
+                      onClick={
+                        usingGlasses
+                          ? glassesRec.stop
+                          : () => recorder.current?.stop()
+                      }
+                    >
+                      Stop recording
+                    </button>
+                    <button
+                      disabled={!file || busy || recording}
+                      onClick={() => {
+                        setFile(undefined);
+                        setInputError("");
+                      }}
+                    >
+                      Clear input
+                    </button>
+                  </div>
+                </>
+              }
+            />
           </section>
         </div>
         <div className="console-column reconstruction-column">

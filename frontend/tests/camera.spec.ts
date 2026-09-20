@@ -146,6 +146,18 @@ test("live camera uses JPEG protocol, overlays detections, survives navigation a
   await page
     .getByRole("button", { name: "Open the full 3D modeling environment" })
     .click();
+  if (
+    !(await page
+      .getByText("Live camera (separate from scan)", { exact: true })
+      .isVisible())
+  ) {
+    await page
+      .getByRole("button", { name: "Agent & Pathfinder", exact: true })
+      .click();
+  }
+  await page
+    .getByText("Live camera (separate from scan)", { exact: true })
+    .click();
   await expect(
     page.getByRole("button", { name: "Stop camera", exact: true }),
   ).toBeVisible();
@@ -285,7 +297,11 @@ test("Rotate 90° turns browser webcam pixels and keeps boxes over the fitted pr
             return (
               colors.join(",") === "blue,red,yellow,green" &&
               edge === "other" &&
-              sample(offsetX / 2, stage.height / 2) === "empty"
+              (offsetX > 2
+                ? sample(offsetX / 2, stage.height / 2) === "empty"
+                : offsetY > 2
+                  ? sample(stage.width / 2, offsetY / 2) === "empty"
+                  : true)
             );
           }),
       )
@@ -541,6 +557,18 @@ test("glasses stream detects objects, rotates in both views, and switches back t
   await dashboard
     .getByRole("button", { name: "Open the full 3D modeling environment" })
     .click();
+  if (
+    !(await page
+      .getByText("Live camera (separate from scan)", { exact: true })
+      .isVisible())
+  ) {
+    await page
+      .getByRole("button", { name: "Agent & Pathfinder", exact: true })
+      .click();
+  }
+  await page
+    .getByText("Live camera (separate from scan)", { exact: true })
+    .click();
   await expect(page.locator(".modeler-view .glasses-video")).toBeVisible();
   await expect(
     page.locator(".modeler-view .detection-overlay"),
@@ -790,7 +818,7 @@ test("Arduino button-only mode controls browser recording and camera mode cannot
     dashboard.getByRole("button", { name: "Start recording", exact: true }),
   ).toBeEnabled();
   cameraMode = false;
-  await expect(dashboard.locator(".camera-panel")).toContainText(
+  await expect(dashboard.locator(".live-panel")).toContainText(
     "Arduino button connected",
   );
   tapSeq++;

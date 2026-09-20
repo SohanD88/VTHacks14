@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { LiveCamera } from "../hooks/useLiveCamera";
 import type { CameraSource } from "../services/liveCamera";
 import {
@@ -10,10 +10,12 @@ export function CameraFeed({
   camera,
   compact = false,
   visible = true,
+  controls,
 }: {
   camera: LiveCamera;
   compact?: boolean;
   visible?: boolean;
+  controls?: ReactNode;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const glasses = useRef<HTMLImageElement>(null);
@@ -163,76 +165,79 @@ export function CameraFeed({
 
   return (
     <div className={`live-camera ${compact ? "is-compact" : ""}`}>
-      <div className="camera-toolbar">
-        <label className="camera-source">
-          Source
-          <select
-            aria-label="Camera source"
-            value={camera.source}
-            onChange={(e) =>
-              camera.selectSource(e.target.value as CameraSource)
-            }
-          >
-            <option value="computer">Computer webcam</option>
-            <option value="glasses">Glasses camera</option>
-          </select>
-        </label>
-        <button
-          className="primary-action"
-          onClick={() =>
-            camera.active || camera.starting
-              ? camera.stop()
-              : void camera.start()
-          }
-        >
-          {camera.starting
-            ? "Cancel camera"
-            : camera.active
-              ? "Stop camera"
-              : "Start camera"}
-        </button>
-        <button
-          className="camera-rotate"
-          type="button"
-          onClick={camera.rotate}
-          aria-label="Rotate camera 90 degrees"
-          title={`Current rotation: ${camera.rotation}°`}
-        >
-          <span aria-hidden="true">↻</span> Rotate 90°{" "}
-          <small>{camera.rotation}°</small>
-        </button>
-        <span className="camera-model-state">{camera.status}</span>
-      </div>
-      {!compact &&
-        camera.source === "computer" &&
-        camera.devices.length > 1 && (
-          <label className="camera-selector">
-            Camera device
+      <div className="camera-controls">
+        <div className="camera-toolbar">
+          <label className="camera-source">
+            Source
             <select
-              aria-label="Camera device"
-              value={camera.deviceId}
-              onChange={(e) => void camera.start(e.target.value)}
+              aria-label="Camera source"
+              value={camera.source}
+              onChange={(e) =>
+                camera.selectSource(e.target.value as CameraSource)
+              }
             >
-              {camera.devices.map((device, i) => (
-                <option key={device.deviceId} value={device.deviceId}>
-                  {device.label || `Camera ${i + 1}`}
-                </option>
-              ))}
+              <option value="computer">Computer webcam</option>
+              <option value="glasses">Glasses camera</option>
             </select>
           </label>
+          <button
+            className="primary-action"
+            onClick={() =>
+              camera.active || camera.starting
+                ? camera.stop()
+                : void camera.start()
+            }
+          >
+            {camera.starting
+              ? "Cancel camera"
+              : camera.active
+                ? "Stop camera"
+                : "Start camera"}
+          </button>
+          <button
+            className="camera-rotate"
+            type="button"
+            onClick={camera.rotate}
+            aria-label="Rotate camera 90 degrees"
+            title={`Current rotation: ${camera.rotation}°`}
+          >
+            <span aria-hidden="true">↻</span> Rotate 90°{" "}
+            <small>{camera.rotation}°</small>
+          </button>
+          <span className="camera-model-state">{camera.status}</span>
+        </div>
+        {!compact &&
+          camera.source === "computer" &&
+          camera.devices.length > 1 && (
+            <label className="camera-selector">
+              Camera device
+              <select
+                aria-label="Camera device"
+                value={camera.deviceId}
+                onChange={(e) => void camera.start(e.target.value)}
+              >
+                {camera.devices.map((device, i) => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label || `Camera ${i + 1}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        {!compact && camera.source === "glasses" && (
+          <label className="glasses-address">
+            Glasses stream address
+            <input
+              aria-label="Glasses stream address"
+              type="url"
+              value={camera.glassesUrl}
+              onChange={(e) => camera.setGlassesUrl(e.target.value)}
+              placeholder="http://127.0.0.1:8080"
+            />
+          </label>
         )}
-      {!compact && camera.source === "glasses" && (
-        <label className="glasses-address">
-          Glasses stream address
-          <input
-            aria-label="Glasses stream address"
-            type="url"
-            value={camera.glassesUrl}
-            onChange={(e) => camera.setGlassesUrl(e.target.value)}
-            placeholder="http://127.0.0.1:8080"
-          />
-        </label>
-      )}
+        {controls}
+      </div>
       <div
         ref={stage}
         className={compact ? "mini-feed live-stage" : "camera-feed live-stage"}
