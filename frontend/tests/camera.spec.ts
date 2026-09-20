@@ -804,3 +804,54 @@ test("Arduino button-only mode controls browser recording and camera mode cannot
     dashboard.getByRole("button", { name: "Reconstruct video", exact: true }),
   ).toBeEnabled();
 });
+
+test("switching to glasses stops an in-progress browser recording", async ({
+  page,
+}) => {
+  const jpeg = Buffer.from(
+    (
+      await page.evaluate(() => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 320;
+        canvas.height = 240;
+        return canvas.toDataURL("image/jpeg");
+      })
+    ).split(",")[1],
+    "base64",
+  );
+  await page.routeWebSocket("**/api/camera/detect", (socket) => {
+    socket.send(JSON.stringify({ type: "status", status: "ready" }));
+  });
+  await page.route("http://127.0.0.1:8080/**", (route) => {
+    if (new URL(route.request().url()).pathname === "/status")
+      return route.fulfill({
+        json: { camera: true, active: false, elapsed: 0, tap_seq: 0 },
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    return route.fulfill({
+      body: jpeg,
+      contentType: "image/jpeg",
+      headers: { "Access-Control-Allow-Origin": "*" },
+    });
+  });
+  await page.goto("/");
+  const dashboard = page.locator(".dashboard-view");
+  await dashboard
+    .getByRole("button", { name: "Start camera", exact: true })
+    .click();
+  await dashboard
+    .getByRole("button", { name: "Start recording", exact: true })
+    .click();
+  await expect(dashboard.locator(".scan-feedback")).toContainText(
+    "Recording camera",
+  );
+  await page.waitForTimeout(1200);
+  await dashboard.getByLabel("Camera source").selectOption("glasses");
+  await expect(dashboard.locator(".scan-feedback")).toContainText(
+    "Capture complete",
+  );
+  await expect(
+    dashboard.locator(".uploaded-video + .input-meta"),
+  ).toContainText(/camera-recording\.(webm|mp4)/);
+  await expect(dashboard.getByLabel("Camera source")).toHaveValue("glasses");
+});
