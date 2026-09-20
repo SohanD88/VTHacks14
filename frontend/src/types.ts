@@ -150,3 +150,18 @@ export interface Layers {
   cutaway: boolean;
   observed: boolean;
 }
+
+export type RouteEndpoint =
+  { point: Vector3; object_id?: never } | { object_id: string; point?: never };
+export interface SceneRoute {
+  scan_id: string;
+  revision: number;
+  polyline: Vector3[];
+  distance_m: number;
+  start: { point: Vector3; label: string; object_id: string | null };
+  end: { point: Vector3; label: string; object_id: string | null };
+  estimated: true;
+  warnings: string[];
+  clearance_m: number;
+  cell_size: number;
+}

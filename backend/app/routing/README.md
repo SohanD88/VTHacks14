@@ -3,9 +3,44 @@
 A* pathfinding for a team moving through a building we have only partly seen, plus the
 agent that turns a spoken instruction into something the planner can execute.
 
-**Nothing in this package knows how the building was reconstructed.** It is not wired to
-any endpoint yet. To use it, write an adapter that turns the reconstruction's output into a
-`BuildingGraph`; everything below then works unchanged.
+The planner consumes a `BuildingGraph`. `scene_adapter.py` now builds one from the saved
+rendered scene and `POST /api/scans/{scan_id}/routes` returns a point-to-point route.
+The Sandbox's **Pathfinder** panel lets you choose floor points by clicking the model,
+or choose doorway objects, then draws the estimated path and endpoint markers.
+
+## Routes through a rendered scene
+
+Send the current scan revision and two endpoints. Each endpoint contains exactly one
+of `point` (world XYZ, Y up, estimated meters) or `object_id` (an existing doorway):
+
+```json
+{
+  "revision": 0,
+  "start": {"point": [0, 0, 0]},
+  "end": {"object_id": "your-door-id"},
+  "clearance_m": 0.2
+}
+```
+
+The response contains `scan_id`, `revision`, `polyline`, `distance_m`, resolved `start`
+and `end` points, `estimated: true`, and `warnings`. There is no extra model call or API
+key for point-to-point routing. It uses the existing A* engine with collinear grid edges
+combined for display; shortcuts across obstacle corners are not permitted.
+
+The adapter applies the same XYZ transforms as the viewer, rasterizes horizontal floor
+triangles at 15 cm resolution, blocks mesh surfaces at walking height, and keeps the
+requested clearance (default 20 cm). Furniture uses conservative bounds. Hidden and
+low-confidence geometry still blocks routes. Deleted objects are excluded. Doorway
+destinations stop at a reachable approach within 90 cm; a label never punches a hole in
+a wall, opens a closed panel, or establishes an exit. Missing floor geometry is blocked.
+
+This is **estimated navigation through the model**, not observed free-space mapping.
+It works with Blender renders that have no camera path, but cannot verify physical access
+or hazards. Both endpoints must be on the same level. Stairs and cross-floor routing
+require an explicit connection model. Grid size, mesh complexity, and computation are
+bounded; unsupported scenes return a readable 422 error. Missing scans return 404;
+unfinished scans and outdated revisions return 409. Edits clear the viewer's route and
+the endpoint checks the scene revision again after planning to prevent stale results.
 
 ```
 reconstruction output  ──[ your adapter ]──▶  BuildingGraph
@@ -53,19 +88,6 @@ honest about a partial map, so an adapter should preserve it.
 smoothing, which string-pulls the grid staircase into a walkable line. If your nodes are not
 on a grid, ids can be anything — smoothing will simply keep every node.
 
-### Sketch: adapting a mesh or object scene
-
-The video-reconstruction `Scene` gives objects with `position`, `size`, `rotation`,
-`structural` and `entrance`. A workable adapter:
-
-1. Take the scene's XZ extent and lay a grid over it, say 0.4–0.5 m per cell.
-2. Rasterise each object's footprint at walking height. Mark those cells **occupied**.
-3. Mark cells the camera path passed near, or within the reconstructed hull, as
-   **explored**; leave the rest **unknown** so the warnings stay meaningful.
-4. Link 8-connected neighbours, refusing to cut a blocked corner.
-5. `entrance: true` objects become `exit` nodes; detected people become `targets`.
-6. Operator annotations become `hazards` — without them, safest and shortest agree.
-
 ## Modes
 
 `shortest` ≈ distance only. `safest` weights hazard exposure 5×, unmapped space 3×, and
@@ -76,6 +98,7 @@ brute-force Dijkstra on 32 random graphs.
 
 ## Not included
 
-- The endpoint. Wire `plan()` up behind a route once an adapter exists.
+- Mission instructions, hazards, verified exits, and multi-floor connectivity are not
+  exposed by the scene route endpoint; it accepts two points or doorway destinations.
 - `ClaudeMissionAgent` has only been tested against a fake client, never the live API.
   `anthropic` is an optional import, so nothing breaks without it.

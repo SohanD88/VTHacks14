@@ -408,7 +408,7 @@ def _resolve(graph: BuildingGraph, mission: Mission) -> list[tuple[Objective, se
     return resolved
 
 
-def plan(graph: BuildingGraph, mission: Mission) -> Route:
+def plan(graph: BuildingGraph, mission: Mission, *, smooth: bool = True) -> Route:
     costs = _Costs(graph, mission)
     start = mission.start_node or graph.default_start
     if start is None or start not in costs.nodes:
@@ -432,7 +432,11 @@ def plan(graph: BuildingGraph, mission: Mission) -> Route:
                 from_node=cursor,
                 to_node=path[-1],
                 nodes=path,
-                polyline=_smooth(costs, path),
+                polyline=(
+                    _smooth(costs, path)
+                    if smooth
+                    else [costs.nodes[node_id].position for node_id in path]
+                ),
                 distance_m=round(stats["distance"], 1),
                 duration_s=round(stats["duration"], 1),
                 risk=round(stats["risk"], 3),

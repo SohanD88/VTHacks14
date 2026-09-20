@@ -25,15 +25,14 @@ export default defineConfig({
   },
   webServer: [
     {
-      command:
-        "../backend/.venv/bin/python -m uvicorn app.main:app --app-dir ../backend --host 127.0.0.1 --port 18114",
+      command: `"${process.platform === "win32" ? "..\\backend\\.venv\\Scripts\\python.exe" : "../backend/.venv/bin/python"}" -m uvicorn app.main:app --app-dir ../backend --host 127.0.0.1 --port 18114`,
       url: "http://127.0.0.1:18114/api/health",
       env: { SPATIAL_DATA_DIR: dataDir },
       reuseExistingServer: false,
     },
     {
-      command:
-        "API_PROXY_TARGET=http://127.0.0.1:18114 npm run dev -- --port 15174",
+      command: "npm run dev -- --port 15174",
+      env: { API_PROXY_TARGET: "http://127.0.0.1:18114" },
       url: "http://127.0.0.1:15174",
       reuseExistingServer: false,
     },
