@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Mode, ScanResponse } from "../types";
 import type { LiveCamera } from "../hooks/useLiveCamera";
-import { useGlassesRecorder } from "../hooks/useGlassesRecorder";
+import { useGlassesRecorder, useRigTaps } from "../hooks/useGlassesRecorder";
 import { CameraFeed } from "./CameraFeed";
 import { API_BASE } from "../services/api";
 import { SceneViewer } from "./SceneViewer";
@@ -132,6 +132,11 @@ export function Dashboard({
       setInputError((e as Error).message);
     }
   };
+  // Computer webcam + Arduino: each tap on the rig's button starts or stops THIS recording.
+  const tapButton = useRigTaps(camera, () => {
+    if (recorder.current?.state === "recording") recorder.current.stop();
+    else if (!busy) record();
+  });
   const failure =
     inputError || (usingGlasses ? glassesRec.error : "") || error || scan?.error;
   const stats = scan?.stats;
@@ -354,6 +359,11 @@ export function Dashboard({
                   (glassesRec.available
                     ? "Tap the touch sensor on the glasses, or use the buttons below, to start and stop recording. The saved video loads here when recording stops."
                     : "Record with the glasses controls, then select the saved video above to reconstruct it.")}
+              </p>
+            )}
+            {!usingGlasses && tapButton && (
+              <p className="input-meta">
+                Arduino button connected. Tap it to start and stop recording.
               </p>
             )}
             <div className="capture-actions">

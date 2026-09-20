@@ -165,3 +165,65 @@ export function useGlassesRecorder(
 
   return { available, recording, elapsed, message, error, start, stop };
 }
+
+/**
+ * "Computer webcam" source: the browser owns the camera, so the rig script runs in
+ * button-only mode (`python tap_stream.py --camera none`) and just counts Arduino taps
+ * in /status "tap_seq". This hook calls `onTap` once for every new tap, so the dashboard
+ * can start and stop its own recording from the physical button. Silent when the script
+ * is not running.
+ */
+export function useRigTaps(camera: LiveCamera, onTap: () => void): boolean {
+  const [connected, setConnected] = useState(false);
+  const tap = useRef(onTap);
+  tap.current = onTap;
+
+  const enabled = camera.source === "computer" && camera.active;
+  const origin = enabled ? rigOrigin(camera.glassesUrl) : null;
+
+  useEffect(() => {
+    if (!origin) {
+      setConnected(false);
+      return;
+    }
+    const abort = new AbortController();
+    let stopped = false;
+    let timer = 0;
+    let seen: number | undefined; // taps from before we connected are ignored
+
+    const poll = async () => {
+      let value: { tap_seq?: unknown } | null = null;
+      try {
+        const response = await fetch(`${origin}/status`, {
+          cache: "no-store",
+          signal: abort.signal,
+        });
+        if (
+          response.ok &&
+          (response.headers.get("content-type") ?? "").includes("json")
+        )
+          value = (await response.json()) as { tap_seq?: unknown };
+      } catch {
+        value = null;
+      }
+      if (stopped) return;
+      const seq = typeof value?.tap_seq === "number" ? value.tap_seq : null;
+      setConnected(seq !== null);
+      if (seq !== null) {
+        if (seen !== undefined && seq > seen) tap.current(); // one action per poll, even for a double tap
+        seen = seq;
+      } else seen = undefined;
+      // Fast while the rig answers (a tap should feel instant), slow while it does not.
+      timer = window.setTimeout(poll, seq !== null ? 250 : 2500);
+    };
+    void poll();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+      abort.abort();
+    };
+  }, [origin]);
+
+  return connected;
+}
+

@@ -7,6 +7,13 @@ tap again to stop recording. Live viewing and detection continue between mission
   Touch sensor 1 (socket D2, sends TAP1) = start / stop the mission
   Touch sensor 2 (socket D3, sends TAP2) = drop a "hazard" marker
 
+v5.3: BUTTON-ONLY MODE for the dashboard's "Computer webcam" source.
+  When the browser itself opens the webcam, this script cannot also hold the camera
+  (Windows allows one program per camera). Run it with no camera instead:
+      python tap_stream.py --camera none
+  It then only listens to the Arduino and reports every tap in /status "tap_seq".
+  The dashboard watches that number and starts / stops ITS OWN recording on each tap.
+
 v5.2: the dashboard can follow and control recording. /status now reports the last
   finished mission, and GET /missions/<name>/video.mp4 serves its video, so the
   dashboard loads the recording by itself when you tap to stop.
@@ -105,7 +112,7 @@ try:
 except ImportError:
     serial = None
 
-VERSION = "v5.2"
+VERSION = "v5.3"
 
 ROTATIONS = {
     "none": None,
@@ -127,6 +134,8 @@ boot_id = str(int(time.time() * 1000))   # changes every time the script starts
 
 shutdown = False        # whole program is exiting
 want_active = False     # what the taps / UI asked for
+tap_seq = 0             # counts every start/stop tap (Arduino or /toggle). The dashboard watches this.
+camera_on = True        # False with --camera none (button-only mode)
 active = False          # a mission is being recorded right now
 mission_no = 0
 
@@ -182,10 +191,12 @@ jpeg_box = Latest()     # newest encoded stream frame: bytes
 
 # ------------------------------------------------------------ controls
 def toggle(source):
-    global want_active
+    global want_active, tap_seq
     with lock:
-        want_active = not want_active
-        state = "START" if want_active else "STOP"
+        tap_seq += 1
+        if camera_on:
+            want_active = not want_active
+        state = ("START" if want_active else "STOP") if camera_on else f"TAP #{tap_seq} -> dashboard"
     print(f"[{source}] {state}")
 
 
@@ -764,6 +775,8 @@ def _tune_socket():
 
 @app.route("/stream")
 def stream():
+    if not camera_on:
+        return ("button-only mode: the browser owns the camera", 503)
     _tune_socket()
 
     def gen():
@@ -813,6 +826,8 @@ def status():
         out = {
             "version": VERSION,
             "boot": boot_id,
+            "camera": camera_on,
+            "tap_seq": tap_seq,
             "active": active,
             "mission": mission_dir.name if mission_dir else None,
             "last_mission": last_mission,
@@ -930,7 +945,9 @@ def lan_ip():
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--camera", default="1",
-                    help="camera number (0 = built-in, 1 = Logitech usually) or a video file for testing")
+                    help="camera number (0 = built-in, 1 = Logitech usually), a video file for testing, "
+                         "or 'none' = button-only mode (the dashboard's Computer webcam records; "
+                         "this script only forwards Arduino taps)")
     ap.add_argument("--rotate", default="none", choices=list(ROTATIONS))
     ap.add_argument("--width", type=int, default=1920)
     ap.add_argument("--height", type=int, default=1080)
@@ -961,10 +978,16 @@ if __name__ == "__main__":
     print(f"tap_stream {VERSION}")
     print(f"Recordings folder: {out_root}")
 
-    threads = [threading.Thread(target=f, args=(args,), daemon=True)
-               for f in (capture_loop, encoder_loop, recorder_loop)]
-    for t in threads:
-        t.start()
+    camera_on = str(args.camera).lower() != "none"
+    threads = []
+    if camera_on:
+        threads = [threading.Thread(target=f, args=(args,), daemon=True)
+                   for f in (capture_loop, encoder_loop, recorder_loop)]
+        for t in threads:
+            t.start()
+    else:
+        print("BUTTON-ONLY MODE: no camera opened here. In the dashboard choose 'Computer webcam', "
+              "start the camera, then tap the sensor to start / stop the dashboard's recording.")
 
     if serial is None:
         print("[arduino] pyserial not installed. Use the web buttons instead.")
@@ -984,4 +1007,5 @@ if __name__ == "__main__":
         app.run(host=args.host, port=args.port, threaded=True)
     finally:
         shutdown = True
-        threads[2].join(timeout=8)            # let the recorder finish the video file
+        if threads:
+            threads[2].join(timeout=8)        # let the recorder finish the video file
