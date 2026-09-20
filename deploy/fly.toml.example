@@ -1,0 +1,35 @@
+# Copy to fly.toml, choose an unused app name, and adjust the allowed frontend origin.
+app = "replace-with-unique-fly-app-name"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  SPATIAL_BLENDER_PROVIDER = "gemini"
+  SPATIAL_BLENDER_PLANNER_MODEL = "gemini-3.6-flash"
+  SPATIAL_BLENDER_TIMEOUT_SECONDS = "600"
+  SPATIAL_CORS_ORIGINS = '["https://smuashdinkytind.vercel.app"]'
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/api/health"
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "60s"
+
+[[mounts]]
+  source = "spatial_data"
+  destination = "/data"
+
+[vm]
+  cpu_kind = "shared"
+  cpus = 4
+  memory_mb = 8192
