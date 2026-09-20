@@ -430,7 +430,7 @@ for (const input of inputs) {
     await expect(page.getByRole("status")).toContainText(
       "Original reconstruction restored",
     );
-    await page.getByRole("button", { name: "Hide inspector" }).click();
+    await page.getByRole("button", { name: "Close object editor" }).click();
     const beforeFrame = Number(await canvas.getAttribute("data-rendered"));
     await expect
       .poll(async () => Number(await canvas.getAttribute("data-rendered")))
