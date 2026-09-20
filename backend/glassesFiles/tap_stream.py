@@ -7,6 +7,10 @@ tap again to stop recording. Live viewing and detection continue between mission
   Touch sensor 1 (socket D2, sends TAP1) = start / stop the mission
   Touch sensor 2 (socket D3, sends TAP2) = drop a "hazard" marker
 
+v5.1: works with tap_buttons.ino v3. That sketch learns whether each sensor or
+  button rests LOW or HIGH, so a part that rests HIGH (D2 stuck at 1 with the
+  old sketch) now starts and stops recording the moment it is pressed.
+
 WHY v5  (make it look like the Windows Camera app)
   The Windows Camera app looks perfect because it runs the webcam in its native
   compressed mode (MJPG) at 1080p / 30 fps with everything on automatic.
@@ -94,7 +98,7 @@ try:
 except ImportError:
     serial = None
 
-VERSION = "v5"
+VERSION = "v5.1"
 
 ROTATIONS = {
     "none": None,
@@ -599,7 +603,7 @@ def handle_serial_line(line):
         toggle("arduino")
     elif line == "TAP2":
         add_event("hazard", "arduino")
-    elif line.startswith("HB"):               # heartbeat: "HB <d2> <d3>"
+    elif line.startswith("HB"):               # heartbeat: "HB <d2> <d3> ..." (1 = pressed; v3 adds more fields)
         try:
             vals = [int(x) for x in line.split()[1:3]]
         except ValueError:
@@ -608,8 +612,10 @@ def handle_serial_line(line):
             last_hb = time.time()
             if len(vals) == 2:
                 pins = vals
-    elif line == "READY":
-        print("[arduino] sketch started (READY)")
+    elif line.startswith("READY"):
+        print(f"[arduino] sketch started ({line})")
+    elif line.startswith("INFO"):             # v3 sketch reports what each pin rests at
+        print(f"[arduino] {line[4:].strip()}")
     elif line:
         print(f"[arduino] unexpected text from board: {line!r}  "
               f"(old or wrong sketch on the board, or baud rate is not 9600)")
@@ -619,16 +625,22 @@ def serial_loop(port):
     global arduino_ok
     while not shutdown:
         try:
-            with serial.Serial(port, 9600, timeout=1) as ser:
+            with serial.Serial(port, 9600, timeout=1, write_timeout=1) as ser:
                 arduino_ok = True
-                opened, warned = time.time(), False
+                opened, warned, asked = time.time(), False, False
                 print(f"[arduino] connected on {port}")
                 while not shutdown:
+                    if not asked and time.time() - opened > 0.5:
+                        asked = True
+                        try:
+                            ser.write(b"L")   # v3 sketch: learn what the sensors rest at, right now
+                        except serial.SerialException:
+                            pass              # older sketch, not listening. Harmless.
                     line = ser.readline().decode(errors="ignore").strip()
                     handle_serial_line(line)
                     if not warned and last_hb < opened and time.time() - opened > 5:
                         warned = True
-                        print("[arduino] port is open but the board is SILENT. The v2 "
+                        print("[arduino] port is open but the board is SILENT. The v3 "
                               "tap_buttons.ino is not running on it. Stop this script "
                               "(Ctrl+C), upload the sketch, then start this again.")
         except Exception as e:
@@ -694,7 +706,7 @@ async function tick(){
    +(s.active?'   recording '+s.rec_fps+' fps'+(s.rec_dropped?' ('+s.rec_dropped+' dropped)':''):'')
    +'   encode '+s.enc_ms+' ms';
  $('a').innerHTML=!s.arduino?'arduino: NOT CONNECTED (port busy or unplugged)':
-  !s.sketch?'arduino: connected but SILENT - upload the v2 tap_buttons.ino':
+  !s.sketch?'arduino: connected but SILENT - upload tap_buttons.ino (v3)':
   'arduino: OK &nbsp; '+pin('D2',s.pins[0])+' '+pin('D3',s.pins[1]);
  document.querySelectorAll('[data-e]').forEach(b=>b.classList.toggle('sel',String(s.exposure)===b.dataset.e));
  document.querySelectorAll('[data-p]').forEach(b=>b.classList.toggle('sel',s.preset===b.dataset.p));
