@@ -23,9 +23,14 @@ RUN uv export --frozen --no-dev --no-hashes --prune torch --prune torchvision -o
 
 ARG BLENDER_VERSION=5.1.2
 ARG BLENDER_SHA256=aaccb355f50183979b698bcce7467103a76261b5fa59f4972295842662a285fb
-RUN curl --fail --location --retry 3 \
+# Some remote builders receive HTTP 403 from the primary download CDN.
+# The mirror serves the same release; the pinned checksum still gates extraction.
+RUN (curl --fail --show-error --location --retry 3 --connect-timeout 30 \
       "https://download.blender.org/release/Blender5.1/blender-${BLENDER_VERSION}-linux-x64.tar.xz" \
       -o /tmp/blender.tar.xz \
+    || curl --fail --show-error --location --retry 3 --connect-timeout 30 \
+      "https://mirrors.iu13.net/blender/release/Blender5.1/blender-${BLENDER_VERSION}-linux-x64.tar.xz" \
+      -o /tmp/blender.tar.xz) \
     && echo "${BLENDER_SHA256}  /tmp/blender.tar.xz" | sha256sum -c - \
     && mkdir /opt/blender && tar -xJf /tmp/blender.tar.xz -C /opt/blender --strip-components=1 \
     && ln -s /opt/blender/blender /usr/local/bin/blender && rm /tmp/blender.tar.xz

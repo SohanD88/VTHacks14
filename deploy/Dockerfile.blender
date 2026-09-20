@@ -7,9 +7,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl xz-utils libx11-6 libxi6 libxfixes3 libxrender1 \
     libxkbcommon0 libsm6 libgl1 libegl1 libgomp1 libxext6 \
     && rm -rf /var/lib/apt/lists/*
-RUN curl --fail --location --retry 3 \
+# Some remote builders receive HTTP 403 from the primary download CDN.
+# The mirror serves the same release; the pinned checksum still gates extraction.
+RUN (curl --fail --show-error --location --retry 3 --connect-timeout 30 \
       "https://download.blender.org/release/Blender5.1/blender-${BLENDER_VERSION}-linux-x64.tar.xz" \
       -o /tmp/blender.tar.xz \
+    || curl --fail --show-error --location --retry 3 --connect-timeout 30 \
+      "https://mirrors.iu13.net/blender/release/Blender5.1/blender-${BLENDER_VERSION}-linux-x64.tar.xz" \
+      -o /tmp/blender.tar.xz) \
     && echo "${BLENDER_SHA256}  /tmp/blender.tar.xz" | sha256sum -c - \
     && mkdir /opt/blender && tar -xJf /tmp/blender.tar.xz -C /opt/blender --strip-components=1 \
     && ln -s /opt/blender/blender /usr/local/bin/blender && rm /tmp/blender.tar.xz
