@@ -13,6 +13,7 @@ from app.config import Settings, get_settings
 from app.routes.camera import router as camera_router
 from app.routes.scans import router as scans_router
 from app.schemas import HealthResponse
+from app.services.blender import BlenderService
 from app.services.detection import CameraDetector
 from app.services.reconstruction import ReconstructionService
 from app.services.store import ScanStore
@@ -33,6 +34,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api = FastAPI(title="Spatial Intelligence API", version="0.2.0", lifespan=lifespan)
     api.state.settings = config
     api.state.detector = CameraDetector(config.detection_confidence, config.model_cache)
+    api.state.blender = BlenderService(config)
     api.state.reconstruction = ReconstructionService(VisionModels(config.model_cache))
     api.state.scan_store = ScanStore(
         config.data_dir, config.max_stored_scans, config.max_storage_bytes
@@ -104,7 +106,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @api.get("/api/health", response_model=HealthResponse, tags=["health"])
     def health() -> HealthResponse:
-        return HealthResponse(camera={"engine": "rf-detr-nano", "model": api.state.detector.state})
+        if config.blender_provider == "gemini":
+            from app.services.gemini import configured
+
+            video_configured = configured(config)
+        else:
+            video_configured = bool(config.blender_api_key and config.blender_planner_model)
+        return HealthResponse(
+            camera={"engine": "rf-detr-nano", "model": api.state.detector.state},
+            blender={
+                "available": api.state.blender.available(),
+                "video_configured": video_configured,
+                "provider": config.blender_provider,
+                "model": config.blender_planner_model,
+                "transport": config.blender_transport,
+            },
+        )
 
     api.include_router(scans_router)
     api.include_router(camera_router)

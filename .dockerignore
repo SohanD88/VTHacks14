@@ -1,0 +1,14 @@
+**
+!backend/
+!backend/app/
+!backend/app/**
+!backend/scripts/
+!backend/scripts/blender/
+!backend/scripts/blender/**
+!backend/pyproject.toml
+!backend/uv.lock
+!deploy/
+!deploy/**
+**/__pycache__
+**/*.pyc
+**/.env*

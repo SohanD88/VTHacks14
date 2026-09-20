@@ -1,6 +1,6 @@
 /** Version 2 API contract; Y up, approximate metric depth scale. */
 export type Vector3 = [number, number, number];
-export type Mode = "quick" | "balanced" | "high";
+export type Mode = "quick" | "balanced" | "high" | "blender";
 export type JobState =
   "queued" | "processing" | "completed" | "degraded" | "cancelled" | "failed";
 export interface Transform {
@@ -14,6 +14,8 @@ export interface SceneObject extends Transform {
   kind: string;
   size: Vector3;
   confidence: number;
+  cutaway_hidden?: boolean;
+  asset_node?: string | null;
   geometry: { vertices: Vector3[]; colors: Vector3[]; triangles: Vector3[] };
   observed_geometry?: {
     vertices: Vector3[];
@@ -30,7 +32,8 @@ export interface SceneObject extends Transform {
     | "reconstructed"
     | "primitive_fitted"
     | "semantic_asset"
-    | "user_created";
+    | "user_created"
+    | "blender_generated";
   method: string;
   source_frames: number[];
   supporting_surface: string | null;
@@ -46,7 +49,9 @@ export interface ScaleCalibration {
   basis: "assumed" | "measured";
 }
 export interface Scene {
+  preview_direction?: Vector3 | null;
   version: 2;
+  asset?: { format: "glb"; data: string; sha256: string } | null;
   units: "estimated_meters";
   calibration?: ScaleCalibration | null;
   objects: SceneObject[];
@@ -116,6 +121,13 @@ export interface ExportBundle {
   original: Scene;
 }
 export interface HealthResponse {
+  blender?: {
+    available: boolean;
+    video_configured: boolean;
+    provider?: string;
+    model?: string;
+    transport: "headless" | "mcp" | "container";
+  };
   status: "ok";
   processing_mode: "video-reconstruction";
   camera: { engine: string; model: string };

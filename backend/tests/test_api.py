@@ -5,6 +5,7 @@ The separate evaluate_videos.py command runs the actual models on real footage.
 import time
 from uuid import uuid4
 
+import av
 import cv2
 import numpy as np
 import pytest
@@ -408,3 +409,40 @@ def test_calibration_rejects_invalid_reference_without_mutation(client, video, p
     )
     assert response.status_code == 422
     assert client.get(f"/api/scans/{id}").json() == scan
+
+
+@pytest.mark.parametrize("frames,expected_status", [(30, 202), (3, 422)])
+def test_browser_webm_without_duration_is_validated_from_frames(
+    client, tmp_path, frames, expected_status
+):
+    path = tmp_path / "capture.webm"
+    # MediaRecorder emits streaming WebM without a seekable duration/frame-count index.
+    with av.open(str(path), "w", format="webm", options={"live": "1"}) as container:
+        stream = container.add_stream("libvpx-vp9", rate=15)
+        stream.width, stream.height, stream.pix_fmt = 96, 64, "yuv420p"
+        for i in range(frames):
+            frame = av.VideoFrame.from_ndarray(
+                np.full((64, 96, 3), i * 5, dtype=np.uint8), format="rgb24"
+            )
+            for packet in stream.encode(frame):
+                container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
+    with av.open(str(path)) as container:
+        assert container.duration is None
+        assert container.streams.video[0].frames == 0
+    response = client.post(
+        "/api/scans",
+        files={"file": ("camera-recording.webm", path.read_bytes(), "video/webm")},
+        data={"name": "Camera test", "source": "capture", "mode": "quick"},
+    )
+    assert response.status_code == expected_status
+    if expected_status == 202:
+        scan = finish(client, response.json()["id"])
+        assert scan["status"] == "degraded"
+        assert scan["source"] == "capture"
+        assert scan["video"]["total_frames"] == frames
+        assert scan["video"]["duration"] == pytest.approx(2.0, abs=0.1)
+        assert scan["stats"]["frames"] == frames
+    else:
+        assert "too short" in response.json()["error"]["message"]

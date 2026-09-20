@@ -370,6 +370,9 @@ test("webcam recording can be reviewed and submitted", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Reconstruct video", exact: true }),
   ).toBeEnabled();
+  await expect(page.locator(".camera-panel")).not.toContainText(
+    "Infinity seconds",
+  );
   let submitted = false;
   await page.route("**/api/scans", (route) => {
     if (route.request().method() !== "POST") return route.continue();
@@ -623,4 +626,24 @@ test("unavailable glasses stream reports an error and the saved address survives
   await expect(dashboard.getByLabel("Glasses stream address")).toHaveValue(
     "http://127.0.0.1:8080/stream",
   );
+});
+
+test("immediately stopped recording stays local and explains minimum length", async ({
+  page,
+}) => {
+  await page.routeWebSocket("**/api/camera/detect", (socket) => {
+    socket.send(JSON.stringify({ type: "status", status: "ready" }));
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start camera", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Start recording", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Stop recording", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toContainText("Recording is too short");
+  await expect(
+    page.getByRole("button", { name: "Retry reconstruction", exact: true }),
+  ).toBeDisabled();
 });

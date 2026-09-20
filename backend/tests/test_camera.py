@@ -127,10 +127,16 @@ def test_untrusted_websocket_origin_rejected(client):
             pass
 
 
-def test_allowed_websocket_origin(client):
-    with client.websocket_connect(
-        "/api/camera/detect", headers={"origin": "http://127.0.0.1:5173"}
-    ) as socket:
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5177",
+        "http://localhost:5177",
+    ],
+)
+def test_allowed_websocket_origin(client, origin):
+    with client.websocket_connect("/api/camera/detect", headers={"origin": origin}) as socket:
         ready(socket)
 
 

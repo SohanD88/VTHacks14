@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import type { ExportBundle, Scene, SceneObject } from "../src/types";
 const API = process.env.TEST_API_URL || "http://127.0.0.1:8014/api";
@@ -52,10 +53,12 @@ async function fixture(
   request: APIRequestContext,
   moving = false,
   objects?: SceneObject[],
+  asset?: Scene["asset"],
 ) {
   const original: Scene = {
     version: 2,
     units: "estimated_meters",
+    asset,
     objects: objects || [
       { ...element("chair"), transient: moving },
       element("door", true),
@@ -183,11 +186,13 @@ test("video selection, upload failure and retry, measured progress, cancellation
       : route.continue(),
   );
   await page.goto("/");
-  await page.getByLabel("Video file", { exact: true }).setInputFiles({
-    name: "test.mp4",
-    mimeType: "video/mp4",
-    buffer: Buffer.from("contract test"),
-  });
+  await page
+    .getByLabel("Video or Blender model", { exact: true })
+    .setInputFiles({
+      name: "test.mp4",
+      mimeType: "video/mp4",
+      buffer: Buffer.from("contract test"),
+    });
   await expect(page.locator(".uploaded-video")).toBeVisible();
   let attempts = 0;
   await page.route("**/api/scans", async (route) => {
@@ -272,7 +277,9 @@ test("mobile navigation, empty state and invalid import", async ({ page }) => {
     animations: "disabled",
   });
   await page.getByRole("button", { name: "Return to dashboard" }).click();
-  await expect(page.getByLabel("Video file", { exact: true })).toBeVisible();
+  await expect(
+    page.getByLabel("Video or Blender model", { exact: true }),
+  ).toBeVisible();
   await page.screenshot({
     path: "test-results/mobile-dashboard.png",
     fullPage: true,
@@ -659,3 +666,131 @@ test("Sandbox doorway scale picks, history, persistence, export and mobile contr
   await request.delete(API + `/scans/${imported}`);
   await request.delete(API + `/scans/${scan.id}`);
 });
+
+for (const format of ["mesh", "blender"] as const) {
+  test(`entrance toggle highlights ${format} doors without hiding geometry`, async ({
+    page,
+    request,
+  }) => {
+    const door = element("door", true);
+    // Also cover semantically tagged doors lacking the legacy entrance boolean.
+    door.entrance = format === "blender";
+    door.observed_geometry = structuredClone(door.geometry);
+    const objects = [element("chair"), door];
+    let asset: Scene["asset"];
+    if (format === "blender") {
+      const positions = new Float32Array(door.geometry.vertices.flat());
+      const indices = new Uint16Array(door.geometry.triangles.flat());
+      const binary = Buffer.concat([
+        Buffer.from(positions.buffer),
+        Buffer.from(indices.buffer),
+      ]);
+      const doc = {
+        asset: { version: "2.0" },
+        scene: 0,
+        scenes: [{ nodes: [0, 1] }],
+        nodes: objects.map((o) => ({
+          mesh: 0,
+          translation: o.position,
+          extras: { spatial_id: o.id },
+        })),
+        meshes: [
+          {
+            primitives: [
+              { attributes: { POSITION: 0 }, indices: 1, material: 0 },
+            ],
+          },
+        ],
+        materials: [
+          {
+            doubleSided: true,
+            pbrMetallicRoughness: { baseColorFactor: [0.4, 0.7, 0.8, 1] },
+          },
+        ],
+        buffers: [{ byteLength: binary.length }],
+        bufferViews: [
+          { buffer: 0, byteOffset: 0, byteLength: positions.byteLength },
+          {
+            buffer: 0,
+            byteOffset: positions.byteLength,
+            byteLength: indices.byteLength,
+          },
+        ],
+        accessors: [
+          {
+            bufferView: 0,
+            componentType: 5126,
+            count: 4,
+            type: "VEC3",
+            min: [-0.5, -0.5, 0],
+            max: [0.5, 0.5, 0],
+          },
+          { bufferView: 1, componentType: 5123, count: 6, type: "SCALAR" },
+        ],
+      };
+      const json = Buffer.from(JSON.stringify(doc));
+      const padded = Buffer.concat([
+        json,
+        Buffer.alloc((4 - (json.length % 4)) % 4, 32),
+      ]);
+      const header = Buffer.alloc(20);
+      header.write("glTF");
+      header.writeUInt32LE(2, 4);
+      header.writeUInt32LE(28 + padded.length + binary.length, 8);
+      header.writeUInt32LE(padded.length, 12);
+      header.writeUInt32LE(0x4e4f534a, 16);
+      const binHeader = Buffer.alloc(8);
+      binHeader.writeUInt32LE(binary.length);
+      binHeader.writeUInt32LE(0x004e4942, 4);
+      const glb = Buffer.concat([header, padded, binHeader, binary]);
+      asset = {
+        format: "glb",
+        data: glb.toString("base64"),
+        sha256: createHash("sha256").update(glb).digest("hex"),
+      };
+      for (const o of objects) {
+        o.asset_node = o.id;
+        o.provenance = "blender_generated";
+      }
+    }
+    const scan = await fixture(request, false, objects, asset);
+    await page.goto(`/?scan=${scan.id}#modeler`);
+    const canvas = page.getByTestId("scene-modeler").locator("canvas");
+    await expect(canvas).toHaveAttribute("data-highlighted-openings", "1");
+    const toggle = page.getByLabel("Entrances / exits", { exact: true });
+    const box = (await canvas.boundingBox())!;
+    let hit: { x: number; y: number } | undefined;
+    for (let y = 0.2; y < 0.85 && !hit; y += 0.05) {
+      for (let x = 0.15; x < 0.9; x += 0.025) {
+        const point = { x: box.x + box.width * x, y: box.y + box.height * y };
+        await page.mouse.move(point.x, point.y);
+        if ((await canvas.getAttribute("data-hovered")) === "door") {
+          hit = point;
+          break;
+        }
+      }
+    }
+    expect(hit).toBeTruthy();
+    await page.screenshot({
+      path: `test-results/entrance-${format}-highlight-on.png`,
+    });
+    await toggle.uncheck();
+    await expect(canvas).toHaveAttribute("data-highlighted-openings", "0");
+    await page.mouse.move(hit!.x, hit!.y);
+    await expect(canvas).toHaveAttribute("data-hovered", "door");
+    await page.mouse.click(hit!.x, hit!.y);
+    await expect(page.getByLabel("Selected object details")).toContainText(
+      "Opening candidate",
+    );
+    await page.screenshot({
+      path: `test-results/entrance-${format}-highlight-off.png`,
+    });
+    await toggle.check();
+    await expect(canvas).toHaveAttribute("data-highlighted-openings", "1");
+    await page.getByLabel("Structural geometry", { exact: true }).uncheck();
+    await expect(canvas).toHaveAttribute("data-highlighted-openings", "0");
+    const saved = await (await request.get(`${API}/scans/${scan.id}`)).json();
+    expect(saved.scene).toEqual(scan.scene);
+    await request.delete(`${API}/scans/${scan.id}`);
+  });
+}

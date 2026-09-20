@@ -13,6 +13,13 @@ interface Props {
   uploading: boolean;
   error: string;
   health: "checking" | "online" | "offline";
+  blender?: {
+    available: boolean;
+    video_configured: boolean;
+    provider?: string;
+    model?: string;
+    transport: "headless" | "mcp" | "container";
+  };
   onScan(
     file: File,
     name: string,
@@ -34,6 +41,7 @@ export function Dashboard({
   uploading,
   error,
   health,
+  blender,
   onScan,
   onCancel,
   onSelect,
@@ -44,10 +52,11 @@ export function Dashboard({
   const [file, setFile] = useState<File>();
   const [url, setUrl] = useState("");
   const [name, setName] = useState("Room reconstruction");
-  const [mode, setMode] = useState<Mode>("balanced");
+  const [mode, setMode] = useState<Mode>("blender");
   const [source, setSource] = useState<"video" | "capture">("video");
   const [inputError, setInputError] = useState("");
   const [recording, setRecording] = useState(false);
+  const [captureDuration, setCaptureDuration] = useState<number>();
   const [previewMeta, setPreviewMeta] = useState("");
   const recorder = useRef<MediaRecorder | null>(null);
   useEffect(() => {
@@ -69,8 +78,10 @@ export function Dashboard({
   const choose = (file?: File) => {
     setInputError("");
     if (!file) return;
-    if (!/\.(mp4|mov|webm|avi|mkv)$/i.test(file.name)) {
-      setInputError("Choose an MP4, MOV, WebM, AVI or MKV video.");
+    if (!/\.(mp4|mov|webm|avi|mkv|blend|glb|json)$/i.test(file.name)) {
+      setInputError(
+        "Choose a video, Blender (.blend), GLB, or room-plan JSON file.",
+      );
       return;
     }
     if (!file.size || file.size > 250 * 1024 ** 2) {
@@ -78,6 +89,8 @@ export function Dashboard({
       return;
     }
     setSource("video");
+    setCaptureDuration(undefined);
+    if (/\.(blend|glb|json)$/i.test(file.name)) setMode("blender");
     setFile(file);
   };
   const record = () => {
@@ -95,11 +108,23 @@ export function Dashboard({
         mime ? { mimeType: mime } : undefined,
       );
       const chunks: BlobPart[] = [];
+      const startedAt = performance.now();
+      let failed = false;
       value.ondataavailable = (e) => {
         if (e.data.size) chunks.push(e.data);
       };
       value.onstop = () => {
         setRecording(false);
+        recorder.current = null;
+        const duration = (performance.now() - startedAt) / 1000;
+        if (failed) return;
+        if (duration < 1 || !chunks.length) {
+          setInputError(
+            "Recording is too short. Record for at least one second; 10–30 seconds is better for a room.",
+          );
+          return;
+        }
+        setCaptureDuration(duration);
         setSource("capture");
         setFile(
           new File(
@@ -110,9 +135,12 @@ export function Dashboard({
         );
       };
       value.onerror = () => {
+        failed = true;
         setInputError("Camera recording failed. Stop and retry.");
         setRecording(false);
       };
+      setFile(undefined);
+      setCaptureDuration(undefined);
       value.start(500);
       recorder.current = value;
       setRecording(true);
@@ -123,6 +151,7 @@ export function Dashboard({
   };
   const failure = inputError || error || scan?.error;
   const stats = scan?.stats;
+  const isModelFile = !!file && /\.(blend|glb|json)$/i.test(file.name);
   const activeSource =
     scan?.scene && scan.source !== "import" && scan.video
       ? `${API_BASE}/scans/${scan.id}/artifacts/source.${scan.video.format}`
@@ -177,10 +206,10 @@ export function Dashboard({
           />
         </label>
         <label>
-          Video file
+          Video or Blender model
           <input
             type="file"
-            accept="video/*,.mkv,.avi"
+            accept="video/*,.mkv,.avi,.blend,.glb,.json"
             onChange={(e) => choose(e.target.files?.[0])}
             disabled={busy || recording}
           />
@@ -192,6 +221,7 @@ export function Dashboard({
             onChange={(e) => setMode(e.target.value as Mode)}
             disabled={busy}
           >
+            <option value="blender">Blender · furnished room model</option>
             <option value="quick">Quick preview · 12 keyframes</option>
             <option value="balanced">Balanced · 28–48 keyframes</option>
             <option value="high">High quality · 56 keyframes</option>
@@ -207,7 +237,9 @@ export function Dashboard({
               ? "Processing…"
               : failure
                 ? "Retry reconstruction"
-                : "Reconstruct video"}
+                : file && /\.(blend|glb|json)$/i.test(file.name)
+                  ? "Open Blender model"
+                  : "Reconstruct video"}
         </button>
         {busy && (
           <button type="button" onClick={onCancel}>
@@ -215,6 +247,15 @@ export function Dashboard({
           </button>
         )}
       </form>
+      {mode === "blender" && blender && (
+        <p className="muted" role="status">
+          {!blender.available
+            ? "Blender is not configured on this server."
+            : !blender.video_configured
+              ? "Blender model import is ready. New video generation needs a vision API key and model configured on the server."
+              : `${blender.model || "Vision model"} → Blender is ready. Selected video frames are sent to ${blender.provider === "gemini" ? "Google Gemini" : "the configured vision service"}.`}
+        </p>
+      )}
       <div className="recent-controls">
         <label>
           Recent scans
@@ -254,14 +295,14 @@ export function Dashboard({
       >
         {failure ||
           (uploading
-            ? "Uploading selected video…"
+            ? "Uploading selected file…"
             : recording
               ? "Recording camera…"
               : scan
                 ? `${scan.status} · ${scan.stage.replaceAll("_", " ")} · ${scan.message}`
                 : file
-                  ? `${source === "capture" ? "Capture complete" : "Uploaded-video mode"} · ready to process`
-                  : "No input selected. Upload a video or record your camera.")}
+                  ? `${source === "capture" ? "Capture complete" : isModelFile ? "Blender model import" : "Uploaded-video mode"} · ready to process`
+                  : "No input selected. Upload a video, Blender model, or record your camera.")}
         {scan && <span> Scan {scan.id.slice(0, 8)}</span>}
       </div>
       {scan && (
@@ -294,7 +335,7 @@ export function Dashboard({
                         : "No video"}
             </span>
           </div>
-          {(activeSource || url) && (
+          {(activeSource || (url && !isModelFile)) && (
             <>
               <video
                 className="uploaded-video"
@@ -309,7 +350,13 @@ export function Dashboard({
                 onLoadedMetadata={(e) => {
                   const v = e.currentTarget;
                   setPreviewMeta(
-                    `${v.videoWidth} × ${v.videoHeight} · ${v.duration.toFixed(1)} seconds`,
+                    `${v.videoWidth} × ${v.videoHeight} · ${
+                      Number.isFinite(v.duration)
+                        ? `${v.duration.toFixed(1)} seconds`
+                        : captureDuration !== undefined
+                          ? `${captureDuration.toFixed(1)} seconds`
+                          : "Duration available after processing"
+                    }`,
                   );
                 }}
                 onError={() =>

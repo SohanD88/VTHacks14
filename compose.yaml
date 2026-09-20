@@ -1,0 +1,54 @@
+name: vthacks14
+services:
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      SPATIAL_BLENDER_PROVIDER: gemini
+      SPATIAL_BLENDER_PLANNER_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
+      SPATIAL_BLENDER_TIMEOUT_SECONDS: 600
+      SPATIAL_CORS_ORIGINS: '${SPATIAL_CORS_ORIGINS:-["http://localhost:5173","http://127.0.0.1:5173"]}'
+    volumes:
+      - scan-data:/data
+      - blender-jobs:/jobs
+    ports:
+      - "${API_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8000}:8000"
+    depends_on:
+      blender-worker:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 4g
+    cpus: 2
+    pids_limit: 256
+    stop_grace_period: 20s
+  blender-worker:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.blender
+    # No credentials, API data, Docker socket, published port, or external network.
+    network_mode: none
+    volumes:
+      - blender-jobs:/jobs
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 4g
+    cpus: 2
+    pids_limit: 256
+    stop_grace_period: 5s
+volumes:
+  scan-data:
+  blender-jobs:

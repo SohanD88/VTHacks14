@@ -48,8 +48,18 @@ async def create_scan(
     if source not in {"video", "capture"}:
         raise HTTPException(422, "Invalid input source.")
     suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in EXTENSIONS:
-        raise HTTPException(415, "Unsupported format. Use MP4, MOV, WebM, AVI or MKV.")
+    is_model = suffix in {".blend", ".glb", ".json"}
+    if is_model:
+        mode = "blender"
+    if mode == "blender":
+        try:
+            request.app.state.blender.executable()
+        except ProcessingError as exc:
+            raise HTTPException(503, str(exc)) from exc
+    if suffix not in EXTENSIONS and not is_model:
+        raise HTTPException(
+            415, "Unsupported format. Use MP4, MOV, WebM, AVI, MKV, .blend, .glb or room-plan JSON."
+        )
     store = request.app.state.scan_store
     try:
         scan = store.reserve(request.app.state.settings.max_upload_bytes + 256 * 1024**2)
@@ -65,20 +75,29 @@ async def create_scan(
                     raise HTTPException(
                         413,
                         (
-                            "Video exceeds the upload size limit (default 250 MB). Trim or com"
+                            "File exceeds the upload size limit (default 250 MB). Simplify or com"
                             "press it."
                         ),
                     )
                 output.write(chunk)
         if not size:
-            raise HTTPException(422, "Upload is empty. Select a nonempty video.")
-        info = await asyncio.to_thread(metadata, path, Path(file.filename or "capture").name[:150])
+            raise HTTPException(422, "Upload is empty. Select a nonempty file.")
+        info = (
+            None
+            if is_model
+            else await asyncio.to_thread(
+                metadata, path, Path(file.filename or "capture").name[:150]
+            )
+        )
         scan.name = name
         scan.processing_mode = mode
-        scan.source = source
+        scan.source = "import" if is_model else source
         scan.video = info
         scan.stage = "queued"
-        store.submit(scan, path, request.app.state.reconstruction)
+        provider = (
+            request.app.state.blender if mode == "blender" else request.app.state.reconstruction
+        )
+        store.submit(scan, path, provider)
         return scan.model_copy(deep=True)
     except (ProcessingError, HTTPException) as exc:
         path.unlink(missing_ok=True)
@@ -266,7 +285,7 @@ def artifact(scan_id: UUID, filename: str, request: Request):
     import re
 
     if not re.fullmatch(
-        r"(frame-\d+\.jpg|segmentation-\d+\.jpg|depth-(refined-)?\d+\.(png|npy)|detection-\d+\.jpg|detections-\d+\.json|mask-\d+\.png|camera-poses\.json|registration\.json|structure-fit\.json|instance-tracks\.json|motion-report\.json|fixture-fit\.json|opening-fit\.json|frame-quality\.json|metrics\.json|cloud\.ply|scene\.json|source\.(mp4|mov|webm|avi|mkv))",
+        r"(frame-\d+\.jpg|segmentation-\d+\.jpg|depth-(refined-)?\d+\.(png|npy)|detection-\d+\.jpg|detections-\d+\.json|mask-\d+\.png|camera-poses\.json|registration\.json|structure-fit\.json|instance-tracks\.json|motion-report\.json|fixture-fit\.json|opening-fit\.json|frame-quality\.json|metrics\.json|model\.(glb|blend)|blender-scene\.json|blender\.log|room-plan\.json|gemini-generation\.json|gemini-review\.json|review-view-[0-2]\.png|frame-selection\.json|cloud\.ply|scene\.json|source\.(mp4|mov|webm|avi|mkv))",
         filename,
     ):
         raise HTTPException(404, "Artifact not found.")

@@ -4,6 +4,14 @@ A local video-to-3D reconstruction and editing application. Upload a room video 
 
 **The production reconstruction path reads actual video frames. The active backend/frontend path uses no office/corridor fixtures or filename-based geometry.** Results are deliberately marked **degraded / partial**: monocular depth is approximate, hidden surfaces are unknown, and semantic predictions are not ground truth. Fitted furniture is explicitly distinguished from observed geometry.
 
+## Blender workflow
+
+The dashboard defaults to **Blender · furnished room model**. The active local setup uses
+**Gemini 3.6 Flash**, the same API key source and Google SDK as the furnished-room experiment.
+Video frames → Gemini-authored geometry → isolated Blender MCP worker → editable Sandbox.
+Existing `.blend`/`.glb` imports also work. See [setup, supported behavior and validation](docs/blender-integration.md).
+Generated geometry remains approximate; selected video frames are sent to Google Gemini.
+
 ## Start the application
 
 Requirements: Python 3.11+, Node 22.12+, `uv`, and a modern WebGL browser. macOS Apple Silicon was tested; Linux CPU/CUDA installations should work with compatible PyTorch/OpenCV wheels but were not tested. Native Windows is not supported by the current Unix memory-measurement dependency; use WSL2.
@@ -30,7 +38,7 @@ Run one API process, without `--workers` or auto-reload during reconstruction. T
 
 ## Models and hardware
 
-Inference runs locally. The first reconstruction downloads official model weights into `.model-cache/`; internet is needed for that initial download. Videos and frames are not sent to a model service.
+For the original quick/balanced/high modes, inference runs locally. The first reconstruction downloads official model weights into `.model-cache/`; internet is needed for that initial download. Those original modes do not send videos or frames to a model service. The new Blender video mode sends selected images to its configured vision service.
 
 - [Depth Anything V2 Metric Indoor Small](https://huggingface.co/depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf): approximate indoor metric depth.
 - [SegFormer B2 / ADE20K](https://huggingface.co/nvidia/segformer-b2-finetuned-ade-512-512): broad room-surface and object segmentation.

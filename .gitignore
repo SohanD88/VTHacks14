@@ -23,3 +23,6 @@ test-results/
 .spatial-data/
 backend/.spatial-data/
 backend/glassesFiles/recordings/
+
+# Local reconstruction footage; keep large/raw captures out of Git.
+TestVideosOfRooms/

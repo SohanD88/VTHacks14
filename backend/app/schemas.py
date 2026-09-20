@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 Finite = Annotated[float, Field(allow_inf_nan=False, ge=-10000, le=10000)]
 Vector3 = tuple[Finite, Finite, Finite]
 Positive = Annotated[float, Field(gt=0, le=10000, allow_inf_nan=False)]
-Mode = Literal["quick", "balanced", "high"]
+Mode = Literal["quick", "balanced", "high", "blender"]
 State = Literal["queued", "processing", "completed", "degraded", "cancelled", "failed"]
 
 
@@ -40,11 +40,28 @@ class Geometry(Contract):
         return self
 
 
+class ModelAsset(Contract):
+    """Embedded GLB keeps original and edited exports portable and self-contained."""
+
+    format: Literal["glb"] = "glb"
+    data: str = Field(max_length=22_000_000)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def valid_asset(self):
+        from app.services.glb import validate_asset
+
+        validate_asset(self.data, self.sha256)
+        return self
+
+
 class SceneObject(Contract):
     id: str = Field(min_length=1, max_length=100)
     label: str = Field(max_length=150)
     kind: str = Field(max_length=80)
     confidence: float = Field(ge=0, le=1)
+    cutaway_hidden: bool = False
+    asset_node: str | None = Field(default=None, max_length=100)
     position: Vector3
     rotation: Vector3 = (0, 0, 0)
     scale: tuple[Positive, Positive, Positive] = (1, 1, 1)
@@ -57,7 +74,12 @@ class SceneObject(Contract):
     entrance: bool = False
     transient: bool = False
     provenance: Literal[
-        "depth_inferred", "reconstructed", "primitive_fitted", "semantic_asset", "user_created"
+        "depth_inferred",
+        "reconstructed",
+        "primitive_fitted",
+        "semantic_asset",
+        "user_created",
+        "blender_generated",
     ] = "depth_inferred"
     method: str = "metric depth + semantic segmentation + RGB-D tracking"
     source_frames: list[int] = Field(default_factory=list, max_length=500)
@@ -95,6 +117,8 @@ class CalibrationEdit(Contract):
 
 class Scene(Contract):
     version: Literal[2] = 2
+    asset: ModelAsset | None = None
+    preview_direction: Vector3 | None = None
     units: Literal["estimated_meters"] = "estimated_meters"
     calibration: ScaleCalibration | None = None
     objects: list[SceneObject] = Field(default_factory=list, max_length=2000)
@@ -107,6 +131,8 @@ class Scene(Contract):
 
     @model_validator(mode="after")
     def unique_ids(self):
+        if self.preview_direction is not None and sum(v * v for v in self.preview_direction) < 1e-8:
+            raise ValueError("Preview direction must be nonzero")
         if len({o.id for o in self.objects}) != len(self.objects):
             raise ValueError("Object IDs must be unique")
         if (
@@ -118,6 +144,17 @@ class Scene(Contract):
             > 500000
         ):
             raise ValueError("Scene exceeds geometry budget")
+        if self.asset:
+            from app.services.glb import asset_node_ids
+
+            ids = asset_node_ids(self.asset.data)
+            refs = [o.asset_node for o in self.objects]
+            if any(ref is None for ref in refs) or len(set(refs)) != len(refs):
+                raise ValueError("GLB objects need unique node references")
+            if set(refs) != ids:
+                raise ValueError("GLB nodes and scene objects must match")
+        elif any(o.asset_node for o in self.objects):
+            raise ValueError("Object references a missing GLB asset")
         return self
 
 
@@ -192,7 +229,16 @@ class CameraHealth(BaseModel):
     model: Literal["unloaded", "loading", "ready", "error"] = "unloaded"
 
 
+class BlenderHealth(BaseModel):
+    provider: str = ""
+    model: str = ""
+    available: bool = False
+    video_configured: bool = False
+    transport: Literal["headless", "mcp", "container"] = "headless"
+
+
 class HealthResponse(BaseModel):
+    blender: BlenderHealth = Field(default_factory=BlenderHealth)
     camera: CameraHealth = Field(default_factory=CameraHealth)
     status: Literal["ok"] = "ok"
     service: str = "spatial-intelligence-api"

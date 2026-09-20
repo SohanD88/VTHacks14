@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import type { Layers, Scene, SceneObject, Transform, Vector3 } from "../types";
@@ -18,6 +20,12 @@ interface Props {
   onReferencePoint?(point: Vector3): void;
   layers?: Layers;
 }
+function isOpening(object: SceneObject) {
+  return (
+    object.entrance ||
+    ["door", "doorway", "entrance", "exit"].includes(object.kind)
+  );
+}
 const defaultLayers: Layers = {
   structure: true,
   entrances: true,
@@ -28,12 +36,53 @@ const defaultLayers: Layers = {
   observed: false,
   transient: false,
 };
+function disposeTree(root: THREE.Object3D) {
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    mesh.geometry?.dispose();
+    if (mesh.material) {
+      for (const material of Array.isArray(mesh.material)
+        ? mesh.material
+        : [mesh.material]) {
+        for (const value of Object.values(material))
+          if (value instanceof THREE.Texture) value.dispose();
+        material.dispose();
+      }
+    }
+  });
+}
 export function SceneViewer(props: Props) {
   const { scene, active, mode } = props;
   const host = useRef<HTMLDivElement>(null);
   const latest = useRef(props);
   latest.current = props;
   const [error, setError] = useState(false);
+  const [model, setModel] = useState<{ hash: string; root: THREE.Group }>();
+  const asset = scene?.asset;
+  useEffect(() => {
+    let cancelled = false;
+    let loaded: THREE.Group | undefined;
+    if (!asset) {
+      setModel(undefined);
+      return;
+    }
+    setError(false);
+    const bytes = Uint8Array.from(atob(asset.data), (c) => c.charCodeAt(0));
+    void new GLTFLoader()
+      .parseAsync(bytes.buffer, "")
+      .then((gltf) => {
+        loaded = gltf.scene;
+        if (!cancelled) setModel({ hash: asset.sha256, root: gltf.scene });
+        else disposeTree(gltf.scene);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      });
+    return () => {
+      cancelled = true;
+      if (loaded) disposeTree(loaded);
+    };
+  }, [asset?.sha256, asset?.data]);
   const [hover, setHover] = useState("");
   const [fps, setFps] = useState(0);
   const actions = useRef<{
@@ -53,7 +102,13 @@ export function SceneViewer(props: Props) {
   ]);
   useEffect(() => {
     const container = host.current;
-    if (!container || !active || !scene) return;
+    if (
+      !container ||
+      !active ||
+      !scene ||
+      (scene.asset && model?.hash !== scene.asset.sha256)
+    )
+      return;
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({
@@ -75,6 +130,18 @@ export function SceneViewer(props: Props) {
     container.prepend(renderer.domElement);
     const world = new THREE.Scene();
     world.add(new THREE.HemisphereLight(0xffffff, 0x667788, 2.2));
+    let environment: THREE.WebGLRenderTarget | undefined;
+    if (scene.asset) {
+      const generator = new THREE.PMREMGenerator(renderer);
+      const room = new RoomEnvironment();
+      environment = generator.fromScene(room, 0.04);
+      world.environment = environment.texture;
+      world.environmentIntensity = 0.8;
+      room.dispose();
+      generator.dispose();
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.1;
+    }
     const camera = new THREE.PerspectiveCamera(48, 1, 0.02, 200);
     const orbit = new OrbitControls(camera, renderer.domElement);
     orbit.enableDamping = true;
@@ -88,6 +155,7 @@ export function SceneViewer(props: Props) {
     });
     const groups = new Map<string, THREE.Group>();
     const labels = new Map<string, THREE.Sprite>();
+    const openings = new Map<string, THREE.Box3Helper>();
     const pickable: THREE.Object3D[] = [];
     const path = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(
@@ -104,7 +172,7 @@ export function SceneViewer(props: Props) {
       ctx.fillStyle = "#061016dc";
       ctx.fillRect(0, 0, 512, 64);
       ctx.font = "24px sans-serif";
-      ctx.fillStyle = object.entrance ? "#ffbf69" : "#ffffff";
+      ctx.fillStyle = isOpening(object) ? "#ffbf69" : "#ffffff";
       ctx.fillText(object.label, 12, 40);
       const texture = new THREE.CanvasTexture(canvas);
       const sprite = new THREE.Sprite(
@@ -121,7 +189,40 @@ export function SceneViewer(props: Props) {
       group.position.set(...object.position);
       group.rotation.set(...object.rotation);
       group.scale.set(...object.scale);
-      if (object.entrance && !object.observed_geometry) {
+      if (object.asset_node && model) {
+        let template: THREE.Object3D | undefined;
+        model.root.traverse((node) => {
+          if (node.userData.spatial_id === object.asset_node) template = node;
+        });
+        if (!template) {
+          setError(true);
+          continue;
+        }
+        const imported = template.clone(true);
+        // Exported root placement is already represented by the scene transform.
+        imported.position.set(0, 0, 0);
+        imported.quaternion.identity();
+        imported.scale.set(1, 1, 1);
+        imported.traverse((node) => {
+          if (node instanceof THREE.Mesh) {
+            node.geometry = node.geometry.clone();
+            const cloneMaterial = (material: THREE.Material) => {
+              const copy = material.clone();
+              for (const key of Object.keys(copy)) {
+                const value = (copy as unknown as Record<string, unknown>)[key];
+                if (value instanceof THREE.Texture)
+                  (copy as unknown as Record<string, unknown>)[key] =
+                    value.clone();
+              }
+              return copy;
+            };
+            node.material = Array.isArray(node.material)
+              ? node.material.map(cloneMaterial)
+              : cloneMaterial(node.material);
+          }
+        });
+        group.add(imported);
+      } else if (object.entrance && !object.observed_geometry) {
         const [w, h, d] = object.size;
         const verticalZ = d > w;
         const span = Math.max(w, d);
@@ -168,7 +269,7 @@ export function SceneViewer(props: Props) {
                 // Observed room surfaces have no reconstructed back/thickness.
                 // Keep their existing triangles visible from either viewing side.
                 side: THREE.DoubleSide,
-                emissive: object.entrance ? 0x553000 : 0x000000,
+                emissive: 0x000000,
                 roughness: 0.95,
                 metalness: 0,
               }),
@@ -185,6 +286,36 @@ export function SceneViewer(props: Props) {
               }),
             ),
           );
+      }
+      if (isOpening(object)) {
+        // Local bounds keep the outline aligned while moving, rotating or scaling a door.
+        const localBounds = new THREE.Box3();
+        group.updateMatrixWorld(true);
+        const inverse = group.matrixWorld.clone().invert();
+        group.traverse((node) => {
+          if (!(node instanceof THREE.Mesh || node instanceof THREE.Points))
+            return;
+          node.geometry.computeBoundingBox();
+          if (node.geometry.boundingBox)
+            localBounds.union(
+              node.geometry.boundingBox
+                .clone()
+                .applyMatrix4(
+                  new THREE.Matrix4().multiplyMatrices(
+                    inverse,
+                    node.matrixWorld,
+                  ),
+                ),
+            );
+        });
+        if (!localBounds.isEmpty()) {
+          const outline = new THREE.Box3Helper(localBounds, 0xffb454);
+          (outline.material as THREE.LineBasicMaterial).depthTest = false;
+          (outline.material as THREE.LineBasicMaterial).depthWrite = false;
+          outline.renderOrder = 5;
+          group.add(outline);
+          openings.set(object.id, outline);
+        }
       }
       const label = makeLabel(object);
       group.add(label);
@@ -205,7 +336,14 @@ export function SceneViewer(props: Props) {
     const reset = () => {
       camera.position
         .copy(center)
-        .add(new THREE.Vector3(0.6, 0.48, 0.8).multiplyScalar(span));
+        .add(
+          (scene.asset
+            ? scene.preview_direction
+              ? new THREE.Vector3(...scene.preview_direction).normalize()
+              : new THREE.Vector3(0.12, 0.52, 0.86)
+            : new THREE.Vector3(0.6, 0.48, 0.8)
+          ).multiplyScalar(span),
+        );
       orbit.target.copy(center);
       orbit.update();
     };
@@ -265,9 +403,9 @@ export function SceneViewer(props: Props) {
         const group = groups.get(object.id);
         if (!group) continue;
         group.visible =
+          !(scene.asset && layers.cutaway && object.cutaway_hidden) &&
           (!object.transient || layers.transient) &&
           (!object.structural || layers.structure) &&
-          (!object.entrance || layers.entrances) &&
           ((object.transient && layers.transient) ||
             (object.confidence >= 0.55 && object.kind !== "unknown") ||
             layers.uncertain);
@@ -279,6 +417,7 @@ export function SceneViewer(props: Props) {
               wallIds.has(relationship.slice(9)),
           );
         const clipped =
+          !scene.asset &&
           layers.cutaway &&
           !object.entrance &&
           (object.kind === "wall" || object.kind === "ceiling" || mounted);
@@ -306,10 +445,17 @@ export function SceneViewer(props: Props) {
         if (clipped && !geometryBounds.isEmpty() && geometryBounds.min.y > 1.3)
           group.visible = false;
         const label = labels.get(object.id)!;
+        const outline = openings.get(object.id);
+        if (outline) outline.visible = layers.entrances;
         label.visible =
-          layers.labels &&
+          (layers.labels || (isOpening(object) && layers.entrances)) &&
           (!clipped || label.getWorldPosition(new THREE.Vector3()).y <= 1.3);
       }
+      renderer.domElement.dataset.highlightedOpenings = String(
+        [...openings].filter(
+          ([id, outline]) => outline.visible && groups.get(id)?.visible,
+        ).length,
+      );
       path.visible = layers.path;
       const selected = current.selected
         ? groups.get(current.selected)
@@ -472,34 +618,30 @@ export function SceneViewer(props: Props) {
       renderer.setAnimationLoop(null);
       orbit.dispose();
       transform.dispose();
-      world.traverse((object) => {
-        const mesh = object as THREE.Mesh;
-        mesh.geometry?.dispose();
-        if (mesh.material) {
-          for (const material of Array.isArray(mesh.material)
-            ? mesh.material
-            : [mesh.material]) {
-            (material as THREE.MeshBasicMaterial).map?.dispose();
-            material.dispose();
-          }
-        }
-      });
+      disposeTree(world);
+      environment?.dispose();
       renderer.dispose();
       renderer.domElement.remove();
       actions.current = null;
     };
-  }, [scene, active, mode, props.layers?.observed]);
+  }, [scene, active, mode, props.layers?.observed, model]);
   return (
     <div
       ref={host}
       className={`scene-host ${mode}`}
       data-testid={`scene-${mode}`}
     >
-      {(!scene || error) && (
+      {(!scene ||
+        error ||
+        (scene.asset && model?.hash !== scene.asset.sha256)) && (
         <div className="scene-empty">
           <span className="empty-cube">◇</span>
           <strong>
-            {error ? "3D display unavailable" : "Your space, reconstructed"}
+            {error
+              ? "3D display unavailable"
+              : scene?.asset
+                ? "Loading Blender model…"
+                : "Your space, reconstructed"}
           </strong>
           <p>
             {error
@@ -510,7 +652,11 @@ export function SceneViewer(props: Props) {
       )}
       {scene && !error && (
         <span className="viewer-status">
-          {hover || "Observed surfaces · empty space is unknown"} · {fps} FPS
+          {hover ||
+            (scene.asset
+              ? "Blender model · estimated geometry"
+              : "Observed surfaces · empty space is unknown")}{" "}
+          · {fps} FPS
         </span>
       )}
       {mode === "modeler" && (

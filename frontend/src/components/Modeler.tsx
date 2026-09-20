@@ -508,7 +508,7 @@ export function Modeler({ camera, active, scan, onChange, onBack }: Props) {
                         <img
                           className="evidence-image"
                           alt={`Source frame ${frame}`}
-                          src={`${API_BASE}/scans/${scan?.id}/artifacts/segmentation-${String(frame).padStart(6, "0")}.jpg`}
+                          src={`${API_BASE}/scans/${scan?.id}/artifacts/${scan?.processing_mode === "blender" ? "frame" : "segmentation"}-${String(frame).padStart(6, "0")}.jpg`}
                         />
                       </a>
                     ))
@@ -521,6 +521,37 @@ export function Modeler({ camera, active, scan, onChange, onBack }: Props) {
                 right-drag to pan, scroll to zoom. Move and Rotate show a
                 transform gizmo.
               </p>
+            )}
+            {scan?.warnings.some((warning) =>
+              warning.startsWith("Visual review"),
+            ) && (
+              <details open>
+                <summary>Model quality review</summary>
+                {scan.warnings
+                  .filter(
+                    (warning) =>
+                      warning.startsWith("Visual review") ||
+                      warning.startsWith("Review concern:"),
+                  )
+                  .map((warning, index) => (
+                    <p className="input-meta" key={index}>
+                      {warning}
+                    </p>
+                  ))}
+                {scan.source !== "import" && (
+                  <a
+                    href={`${API_BASE}/scans/${scan.id}/artifacts/gemini-review.json`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View review report
+                  </a>
+                )}
+                <p className="input-meta">
+                  Visual review does not verify measurements or safe exit
+                  routes.
+                </p>
+              </details>
             )}
             {
               <details open>

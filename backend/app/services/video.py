@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import av
 import cv2
 import numpy as np
 
@@ -27,6 +28,43 @@ def discover_videos(root: Path) -> list[Path]:
     )
 
 
+def decoded_timing(path: Path):
+    """Count actual frames when the container lacks a trustworthy duration/index."""
+    try:
+        with av.open(str(path)) as container:
+            stream = container.streams.video[0]
+            rate = float(stream.average_rate or stream.guessed_rate or 0)
+            first_time = last_time = None
+            last_step = 0.0
+            count = 0
+            for frame in container.decode(stream):
+                count += 1
+                if frame.width * frame.height > 4096 * 4096 or count > 43_200:
+                    raise ProcessingError("Video exceeds the decoding limit. Trim or resize it.")
+                if frame.time is not None:
+                    timestamp = float(frame.time)
+                    if first_time is None:
+                        first_time = timestamp
+                    if last_time is not None and timestamp > last_time:
+                        last_step = timestamp - last_time
+                    last_time = timestamp
+                    if timestamp - first_time > 180:
+                        raise ProcessingError("Video exceeds the 3-minute limit. Trim it.")
+            if count == 0:
+                raise ProcessingError("Video has no readable frames. Re-export it as H.264 MP4.")
+            if first_time is not None and last_time is not None and last_time > first_time:
+                duration = last_time - first_time + (last_step or 1 / max(rate, 1))
+            elif rate > 0 and np.isfinite(rate):
+                duration = count / rate
+            else:
+                raise ProcessingError("Video timing could not be read. Re-export it as H.264 MP4.")
+            return count, count / duration, duration
+    except (av.FFmpegError, IndexError, ValueError, OSError) as exc:
+        raise ProcessingError(
+            "Video cannot be decoded. Try recording again or upload H.264 MP4."
+        ) from exc
+
+
 def metadata(path: Path, filename: str) -> VideoMetadata:
     capture = cv2.VideoCapture(str(path), cv2.CAP_FFMPEG)
     try:
@@ -38,15 +76,21 @@ def metadata(path: Path, filename: str) -> VideoMetadata:
                 )
             )
         fps = capture.get(cv2.CAP_PROP_FPS)
-        count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        reported_count = capture.get(cv2.CAP_PROP_FRAME_COUNT)
+        count = int(reported_count) if np.isfinite(reported_count) else 0
         ok, frame = capture.read()
-        if not ok or fps <= 0 or not np.isfinite(fps):
+        if not ok:
             raise ProcessingError("Video has no readable frames. Re-export it as H.264 MP4.")
-        if count / fps < 0.5:
+        duration = count / fps if fps > 0 and np.isfinite(fps) else 0
+        if frame.shape[0] * frame.shape[1] > 4096 * 4096:
+            raise ProcessingError("Video exceeds the 4096×4096 decoding limit. Resize it.")
+        if path.suffix.lower() == ".webm" or count <= 0 or duration <= 0:
+            count, fps, duration = decoded_timing(path)
+        if duration < 1:
             raise ProcessingError(
                 "Video is too short. Record at least one second while moving slowly."
             )
-        if count / fps > 180 or frame.shape[0] * frame.shape[1] > 4096 * 4096:
+        if duration > 180:
             raise ProcessingError(
                 "Video exceeds the 3-minute or 4096×4096 decoding limit. Trim or resize it."
             )
@@ -58,7 +102,7 @@ def metadata(path: Path, filename: str) -> VideoMetadata:
             width=frame.shape[1],
             height=frame.shape[0],
             fps=fps,
-            duration=count / fps,
+            duration=duration,
             total_frames=count,
             rotation=int(capture.get(cv2.CAP_PROP_ORIENTATION_META)),
         )

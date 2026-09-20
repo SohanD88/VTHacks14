@@ -3,7 +3,7 @@ import { useLiveCamera } from "./hooks/useLiveCamera";
 import { Dashboard } from "./components/Dashboard";
 import { Modeler } from "./components/Modeler";
 import { api } from "./services/api";
-import type { Mode, ScanResponse } from "./types";
+import type { HealthResponse, Mode, ScanResponse } from "./types";
 export function App() {
   const camera = useLiveCamera();
   const [view, setView] = useState(
@@ -16,6 +16,7 @@ export function App() {
   const [health, setHealth] = useState<"checking" | "online" | "offline">(
     "checking",
   );
+  const [blender, setBlender] = useState<HealthResponse["blender"]>();
   const upload = useRef<AbortController | null>(null);
   const refresh = useCallback(async () => {
     try {
@@ -26,7 +27,7 @@ export function App() {
   }, []);
   const checkHealth = useCallback(async () => {
     try {
-      await api.health();
+      setBlender((await api.health()).blender);
       setHealth("online");
       setError("");
       await refresh();
@@ -183,6 +184,7 @@ export function App() {
         busy={!!running || uploading}
         error={error}
         health={health}
+        blender={blender}
         onScan={run}
         onCancel={() => void cancel()}
         onSelect={(id) => void select(id)}
